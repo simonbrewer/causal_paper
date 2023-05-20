@@ -1,0 +1,303 @@
+---
+title: "Causal Examples"
+author: "Simon Brewer"
+date: "5/19/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+set.seed(123)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries and whatnot
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+# library(broom)
+library(patchwork)
+library(scales)
+library(dagitty)
+library(ggdag)
+library(latex2exp)  # Easily convert LaTeX into arcane plotmath expressions
+library(ggtext)     # Use markdown in ggplot labels
+
+# Create a cleaner serifed theme to use throughout
+theme_do_calc <- function() {
+  theme_dag(base_family = "Times New Roman") +
+    theme(plot.title = element_text(size = rel(1.5)),
+          plot.subtitle = element_markdown())
+}
+
+# Make all geom_dag_text() layers use these settings automatically
+update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman", 
+                                               fontface = "bold",
+                                               color = "black"))
+```
+
+## Confounder
+
+### Simple confounder 
+
+```{r}
+confounder_dag <- dagify(x ~ z,
+                         y ~ z,
+                         coords = list(x = c(x = 1, y = 3, z = 2),
+                                       y = c(x = 1, y = 1, z = 2)),
+                         exposure = "x",
+                         outcome = "y")
+
+ggdag(confounder_dag) +
+  theme_dag()
+```
+
+Independence:
+
+```{r}
+impliedConditionalIndependencies(confounder_dag)
+```
+
+Adjustment set:
+
+```{r}
+ggdag_adjustment_set(confounder_dag) +
+  theme_dag()
+```
+
+Equations
+
+- `z`: $N(10, 5)$
+- `x ~ z`: $\beta_1 = 5$
+- `y ~ z`: $\beta_2 = 2$
+
+```{r}
+n <- 1000
+z <- rnorm(n, 10, 5)
+x <- z * 5 + rnorm(n, 0, 2)
+y <- z * 2 + rnorm(n, 0, 2)
+df <- data.frame(x, y, z)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x`
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Model controlling for `z`
+
+```{r}
+fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
+### Simple confounder 2
+
+```{r}
+confounder_dag <- dagify(x ~ z,
+                         y ~ x + z,
+                         coords = list(x = c(x = 1, y = 3, z = 2),
+                                       y = c(x = 1, y = 1, z = 2)),
+                         exposure = "x",
+                         outcome = "y")
+
+ggdag(confounder_dag) +
+  theme_dag()
+```
+
+Independence:
+
+```{r}
+impliedConditionalIndependencies(confounder_dag)
+```
+
+Adjustment set:
+
+```{r}
+ggdag_adjustment_set(confounder_dag) +
+  theme_dag()
+```
+
+Equations
+
+- `z`: $N(10, 5)$
+- `x ~ z`: $\beta_1 = 5$
+- `y ~ x + z`: $\beta_2 = -4$, $\beta_3 = 2$
+
+```{r}
+n <- 1000
+z <- rnorm(n, 10, 5)
+x <- z * 5 + rnorm(n, 0, 5)
+y <- x * -4 + z * 2 + rnorm(n, 0, 5)
+df <- data.frame(x, y, z)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x`
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Model controlling for `z`
+
+```{r}
+fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
+### Two variable confounder 
+
+```{r}
+confounder_dag <- dagify(x ~ z1,
+                         z2 ~ z1,
+                         y ~ z2,
+                         coords = list(x = c(x = 1, y = 3, z1 = 1.5, z2 = 2.5),
+                                       y = c(x = 1, y = 1, z1 = 2, z2 = 1.5)),
+                         exposure = "x",
+                         outcome = "y")
+
+ggdag(confounder_dag) +
+  theme_dag()
+```
+
+Independence:
+
+```{r}
+impliedConditionalIndependencies(confounder_dag)
+```
+
+Adjustment set:
+
+```{r}
+ggdag_adjustment_set(confounder_dag) +
+  theme_dag()
+```
+
+Equations
+
+- `z1`: $N(10, 5)$
+- `x ~ z1`: $\beta_1 = 5$
+- `y ~ z2`: $\beta_2 = 2$
+- `z2 ~ z1`: $beta_3 = -4$
+
+```{r}
+n <- 1000
+z1 <- rnorm(n, 10, 5)
+x <- z1 * 5 + rnorm(n, 0, 5)
+z2 <- z1 * -4 + rnorm(n, 0, 5)
+y <- z2 * 2 + rnorm(n, 0, 5)
+df <- data.frame(x, y, z1, z2)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x`
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Control for `z1`
+
+```{r}
+fit <- lm(y ~ x + z1, df)
+summary(fit)
+```
+
+Control for `z2`
+
+```{r}
+fit <- lm(y ~ x + z2, df)
+summary(fit)
+```
+
+Control for both
+
+```{r}
+fit <- lm(y ~ x + z1 + z2, df)
+summary(fit)
+```
+
+## Collider
+
+```{r}
+collider_dag <- dagify(z ~ x,
+                       z ~ y,
+                       coords = list(x = c(x = 1, y = 3, z = 2),
+                                     y = c(x = 1, y = 1, z = 2)),
+                         exposure = "x",
+                         outcome = "y")
+
+ggdag(collider_dag) +
+  theme_dag()
+```
+
+Independence:
+
+```{r}
+impliedConditionalIndependencies(collider_dag)
+```
+
+Adjustment set:
+
+```{r}
+ggdag_adjustment_set(collider_dag) +
+  theme_dag()
+```
+
+Separation:
+
+```{r}
+ggdag_dseparated(collider_dag) +
+  theme_dag()
+```
+
+```{r}
+ggdag_dseparated(collider_dag, controlling_for = "z")
+```
+
+Equations
+
+- `x`: $N(10, 2)$
+- `y`: $N(5, 1)$
+- `z ~ x + y`: $\beta_1 = 5$, $\beta_2 = 2$
+
+```{r}
+n <- 1000
+x <- rnorm(n, 10, 2)
+y <- rnorm(n, 5, 1)
+z <- 5 * x + 2 * y + rnorm(n, 0, 2)
+df <- data.frame(x, y, z)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x`
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Model controlling for `z`
+
+```{r}
+fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
