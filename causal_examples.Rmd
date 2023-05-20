@@ -35,9 +35,13 @@ update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman",
                                                color = "black"))
 ```
 
-## Confounder
+## Confounders
+
+Confounders are anything that have an open path between the input / intervention variables and the outcome
 
 ### Simple confounder 
+
+This has no causal link between `x` and `y`, and a single confounder (`z`)
 
 ```{r}
 confounder_dag <- dagify(x ~ z,
@@ -51,20 +55,20 @@ ggdag(confounder_dag) +
   theme_dag()
 ```
 
-Independence:
+Independence: `x` and `y` are independent (conditioned on `z`)
 
 ```{r}
 impliedConditionalIndependencies(confounder_dag)
 ```
 
-Adjustment set:
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
 
 ```{r}
 ggdag_adjustment_set(confounder_dag) +
   theme_dag()
 ```
 
-Equations
+Simulated data - Equations
 
 - `z`: $N(10, 5)$
 - `x ~ z`: $\beta_1 = 5$
@@ -82,14 +86,14 @@ df <- data.frame(x, y, z)
 pairs(df)
 ```
 
-Model of `y ~ x`
+Model of `y ~ x`. Ignoring the confounder results in spurious relationship between intervention and outcome
 
 ```{r}
 fit <- lm(y ~ x, df)
 summary(fit)
 ```
 
-Model controlling for `z`
+Model controlling for `z`. This removes the backdoor path between `x` and `y` and removes the apparent relationship
 
 ```{r}
 fit <- lm(y ~ x + z, df)
@@ -97,6 +101,8 @@ summary(fit)
 ```
 
 ### Simple confounder 2
+
+This is the same graph as before, but now we include a real relationship between `x` and `y`
 
 ```{r}
 confounder_dag <- dagify(x ~ z,
@@ -110,7 +116,7 @@ ggdag(confounder_dag) +
   theme_dag()
 ```
 
-Independence:
+Independence: Now `x` and `y` have no conditional independence
 
 ```{r}
 impliedConditionalIndependencies(confounder_dag)
@@ -141,14 +147,14 @@ df <- data.frame(x, y, z)
 pairs(df)
 ```
 
-Model of `y ~ x`
+Model of `y ~ x`. Without controlling for the confounder, the coefficient relating `x` and `y` is biased (the relationship exists, but it's biased)
 
 ```{r}
 fit <- lm(y ~ x, df)
 summary(fit)
 ```
 
-Model controlling for `z`
+Model controlling for `z`. Now we get the right value for the coefficient ($\sim4$)
 
 ```{r}
 fit <- lm(y ~ x + z, df)
@@ -156,6 +162,8 @@ summary(fit)
 ```
 
 ### Two variable confounder 
+
+This is to illustrate Pearl's point about uncessary confounders. This graph has a backdoor path with two confounding variables (`z1` and `z2`). In order to test a causal link between `x` and `y`, we *only* need to control for one, as either will block the back door path 
 
 ```{r}
 confounder_dag <- dagify(x ~ z1,
@@ -176,7 +184,7 @@ Independence:
 impliedConditionalIndependencies(confounder_dag)
 ```
 
-Adjustment set:
+Adjustment set: Now we get two adjustment sets, as controlling for either `z1` or `z2` removes the path
 
 ```{r}
 ggdag_adjustment_set(confounder_dag) +
@@ -203,7 +211,7 @@ df <- data.frame(x, y, z1, z2)
 pairs(df)
 ```
 
-Model of `y ~ x`
+Model of `y ~ x` (shows spurious relationship)
 
 ```{r}
 fit <- lm(y ~ x, df)
@@ -213,25 +221,29 @@ summary(fit)
 Control for `z1`
 
 ```{r}
-fit <- lm(y ~ x + z1, df)
-summary(fit)
+fit1 <- lm(y ~ x + z1, df)
+summary(fit1)
 ```
 
 Control for `z2`
 
 ```{r}
-fit <- lm(y ~ x + z2, df)
-summary(fit)
+fit2 <- lm(y ~ x + z2, df)
+summary(fit2)
 ```
 
-Control for both
+Control for both (this works, but is more costly in regression terms)
 
 ```{r}
-fit <- lm(y ~ x + z1 + z2, df)
-summary(fit)
+fit3 <- lm(y ~ x + z1 + z2, df)
+summary(fit3)
 ```
 
+**REDO THIS WITH A LINK**
+
 ## Collider
+
+This is the second type of path junction that can cause problems. Here, our two variables (`x` and `y`) are independent, but are both linked to `z`, the collider. Ths issue with this relationship is the bias that results *when we control for the collider*
 
 ```{r}
 collider_dag <- dagify(z ~ x,
@@ -245,28 +257,31 @@ ggdag(collider_dag) +
   theme_dag()
 ```
 
-Independence:
+Independence: In the case, there is no conditional independence. `x` and `y` are unconditionally independent
 
 ```{r}
 impliedConditionalIndependencies(collider_dag)
 ```
 
-Adjustment set:
+Adjustment set: now we do not need to adjust our model
 
 ```{r}
 ggdag_adjustment_set(collider_dag) +
   theme_dag()
 ```
 
-Separation:
+Separation: This is a test for $d$-separation in a DAG. $d$-separation indicates that two variables are independent
 
 ```{r}
 ggdag_dseparated(collider_dag) +
   theme_dag()
 ```
 
+We can also test for $d$-separation when we control for `z`. THis now shows that a backdoor path has been opened by the control, resulting in a spurious link between `x` and `y` (**MAYBE ADD DSEP TO CONFOUNDER EXAMPLES?**)
+
 ```{r}
-ggdag_dseparated(collider_dag, controlling_for = "z")
+ggdag_dseparated(collider_dag, controlling_for = "z") +
+  theme_dag()
 ```
 
 Equations
@@ -287,17 +302,18 @@ df <- data.frame(x, y, z)
 pairs(df)
 ```
 
-Model of `y ~ x`
+Model of `y ~ x` - this returns the unbiased link (or lack thereof) between `x` and `y` given the collider
 
 ```{r}
 fit <- lm(y ~ x, df)
 summary(fit)
 ```
 
-Model controlling for `z`
+Model controlling for `z`. This now results in a spurious relationship between `x` and `y`
 
 ```{r}
 fit <- lm(y ~ x + z, df)
 summary(fit)
 ```
 
+**REPEAT WITH LINK BETWEEN X AND Y**
