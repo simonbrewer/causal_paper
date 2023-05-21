@@ -35,6 +35,10 @@ update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman",
                                                color = "black"))
 ```
 
+## Examples
+
+In all the examples that follow, we are trying to estimate a causal relationship between `x` and `y`. I think this is $P(Y| \mbox{do}(X=x))$ **NEED TO CHECK THIS**
+
 ## Confounders
 
 Confounders are anything that have an open path between the input / intervention variables and the outcome
