@@ -327,6 +327,7 @@ summary(fit3)
 
 This is the second type of path junction that can cause problems. Here, our two variables (`x` and `y`) are independent, but are both linked to `z`, the collider. Ths issue with this relationship is the bias that results *when we control for the collider*
 
+### Simple collider (no causal link)
 ```{r}
 collider_dag <- dagify(z ~ x,
                        z ~ y,
@@ -398,4 +399,76 @@ fit <- lm(y ~ x + z, df)
 summary(fit)
 ```
 
-**REPEAT WITH LINK BETWEEN X AND Y**
+### Simple collider (with causal link)
+```{r}
+collider_dag <- dagify(z ~ x,
+                       z ~ y,
+                       y ~ x,
+                       coords = list(x = c(x = 1, y = 3, z = 2),
+                                     y = c(x = 1, y = 1, z = 2)),
+                         exposure = "x",
+                         outcome = "y")
+
+ggdag(collider_dag) +
+  theme_dag()
+```
+
+Independence: In the case, there is no conditional independence. `x` and `y` are unconditionally independent
+
+```{r}
+impliedConditionalIndependencies(collider_dag)
+```
+
+Adjustment set: now we do not need to adjust our model
+
+```{r}
+ggdag_adjustment_set(collider_dag) +
+  theme_dag()
+```
+
+Separation: This is a test for $d$-separation in a DAG. $d$-separation indicates that two variables are independent
+
+```{r}
+ggdag_dseparated(collider_dag) +
+  theme_dag()
+```
+
+We can also test for $d$-separation when we control for `z`. THis now shows that a backdoor path has been opened by the control, resulting in a spurious link between `x` and `y` (**MAYBE ADD DSEP TO CONFOUNDER EXAMPLES?**)
+
+```{r}
+ggdag_dseparated(collider_dag, controlling_for = "z") +
+  theme_dag()
+```
+
+Equations
+
+- `x`: $N(10, 2)$
+- `y`: $N(5, 1) + \beta_3 x$. $\beta_3 = 1.5$
+- `z ~ x + y`: $\beta_1 = 5$, $\beta_2 = 2$
+
+```{r}
+n <- 1000
+x <- rnorm(n, 10, 2)
+y <- rnorm(n, 5, 1) + 1.5 * x
+z <- 5 * x + 2 * y + rnorm(n, 0, 2)
+df <- data.frame(x, y, z)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x` - this returns the unbiased coefficient between `x` and `y` given the collider
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Model controlling for `z`. This now results in a biased coefficient between `x` and `y`
+
+```{r}
+fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
