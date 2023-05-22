@@ -245,6 +245,84 @@ summary(fit3)
 
 **REDO THIS WITH A LINK**
 
+### Two variable confounder with causal link
+
+This is to illustrate Pearl's point about uncessary confounders. This graph has a backdoor path with two confounding variables (`z1` and `z2`). In order to test a causal link between `x` and `y`, we *only* need to control for one, as either will block the back door path. This also adds a path between `x` and `y`
+
+```{r}
+confounder_dag <- dagify(x ~ z1,
+                         z2 ~ z1,
+                         y ~ x + z2,
+                         coords = list(x = c(x = 1, y = 3, z1 = 1.5, z2 = 2.5),
+                                       y = c(x = 1, y = 1, z1 = 2, z2 = 1.5)),
+                         exposure = "x",
+                         outcome = "y")
+
+ggdag(confounder_dag) +
+  theme_dag()
+```
+
+Independence:
+
+```{r}
+impliedConditionalIndependencies(confounder_dag)
+```
+
+Adjustment set: Now we get two adjustment sets, as controlling for either `z1` or `z2` removes the path
+
+```{r}
+ggdag_adjustment_set(confounder_dag) +
+  theme_dag()
+```
+
+Equations
+
+- `z1`: $N(10, 5)$
+- `x ~ z1`: $\beta_1 = 5$
+- `y ~ x + z2`: $\beta_2 = 1.5; \beta_3 = 2$
+- `z2 ~ z1`: $beta_4 = -4$
+
+```{r}
+n <- 1000
+z1 <- rnorm(n, 10, 5)
+x <- z1 * 5 + rnorm(n, 0, 5)
+z2 <- z1 * -4 + rnorm(n, 0, 5)
+y <- x * 1.5 + z2 * 2 + rnorm(n, 0, 5)
+df <- data.frame(x, y, z1, z2)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x` (biased coefficient, only weakly significant)
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Control for `z1`
+
+```{r}
+fit1 <- lm(y ~ x + z1, df)
+summary(fit1)
+```
+
+Control for `z2`
+
+```{r}
+fit2 <- lm(y ~ x + z2, df)
+summary(fit2)
+```
+
+Control for both (this works, but is more costly in regression terms)
+
+```{r}
+fit3 <- lm(y ~ x + z1 + z2, df)
+summary(fit3)
+```
+
 ## Collider
 
 This is the second type of path junction that can cause problems. Here, our two variables (`x` and `y`) are independent, but are both linked to `z`, the collider. Ths issue with this relationship is the bias that results *when we control for the collider*
