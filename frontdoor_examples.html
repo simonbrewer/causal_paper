@@ -521,6 +521,83 @@ while controlling for <code>X</code> to close the backdoor:</p>
 ## 0.2480798</code></pre>
 </div>
 </div>
+<div id="frontdoor-algebra" class="section level2">
+<h2>Frontdoor Algebra</h2>
+<p>We require the following assumptions (<a href="https://stats.stackexchange.com/questions/312992/causal-effect-by-back-door-and-front-door-adjustments" class="uri">https://stats.stackexchange.com/questions/312992/causal-effect-by-back-door-and-front-door-adjustments</a>):</p>
+<ul>
+<li>Full mediation: there is no directed path from <code>X</code> to
+<code>Y</code>, except through <code>Z</code></li>
+<li>Unconfoundedness 1: There is no open backdoor from <code>X</code> to
+<code>Z</code></li>
+<li>Unconfoundedness 2: All backdoors from <code>Z</code> to
+<code>Y</code> are blocked by <code>X</code>.</li>
+</ul>
+<p>Step 1: Under assumption 2, the relationship between <code>X</code>
+and <code>Z</code> is not confounded. See DAG at the top - there’s no
+way to get from <code>X</code> to <code>Z</code> except the direct path.
+The other path is blocked by a collider at <code>Y</code>. As a result,
+we have: <span class="math display">\[
+P(Z|\mbox{do}(x)) = P(Z|X)
+\]</span></p>
+<p>Step 2: In contrast, the relationship between <code>Z</code> and
+<code>Y</code> is confounded (<span class="math inline">\(Z \leftarrow X
+\leftarrow U \rightarrow Y\)</span>. If we adjust for <code>X</code>,
+this blocks this path, and allows an unbiased estimate of the effect of
+<code>Z</code>. The backdoor formula is:</p>
+<p><span class="math display">\[
+P(Y|\mbox{do}(Z)) = \sum_X P(Y|X,Z)P(X)
+\]</span></p>
+<p><span class="math display">\[
+\begin{aligned}
+  P(Y|\mbox{do}(Z)) &amp; = \sum_Z P(Y|\mbox{do}(X),Z)P(Z|\mbox{do}(X))
+\\
+                    &amp; = \sum_Z P(Y|\mbox{do}(Z))P(Z|\mbox{do}(X)) \\
+                    &amp; = \sum_Z P(Y|\mbox{do}(Z))P(Z|X) \\
+                    &amp; = \sum_Z \sum_X P(Y|X,Z)P(X)P(Z|X) \\
+                    &amp; = \sum_Z P(Z|X) \sum_X P(Y|X,Z)P(X)
+\end{aligned}
+\]</span></p>
+<p>Equation (1) conditions on <code>Z</code> and sums over its values.
+Equation (2) is allowed because the effect of <code>X</code> is entirely
+mediated by <code>Z</code>, and because <code>X</code> blocks the
+backdoor path from <code>Z</code> to <code>Y</code>. Intuitively, if we
+manipulate <code>Z</code>, it no longer matters what happened to
+<code>X</code>. Equation (3) is allowed because the relationship between
+<code>X</code> and <code>Z</code> is unconfounded. Equation (4) applies
+the backdoor adjustment formula to estimate the effect of <code>Z</code>
+on <code>Y</code> by conditioning on <code>X</code>.</p>
+<p>Equation (5) is the frontdoor adjustment formula. The left part is
+the effect of <code>X</code> on <code>Z</code>. The right part is the
+effect of <code>Z</code> on <code>Y</code>.</p>
+</div>
+<div id="dosearch" class="section level2">
+<h2><strong>dosearch</strong></h2>
+<p>The <strong>dosearch</strong> package for R includes an algorithm
+that can automatically apply the rules of do-calculus to convert DAGs to
+adjustment formulas. Instead of manipulating equations ourselves like we
+did above, we can simply call the <code>dosearch</code> function to
+obtain the frontdoor adjustment formula automatically:</p>
+<pre class="r"><code>library(&#39;dosearch&#39;)
+
+data1 = &quot;P(X, Y, Z)&quot;
+
+query1 = &quot;P(Y | do(X))&quot;
+
+graph1 = &quot;
+U -&gt; X
+U -&gt; Y
+X -&gt; Z
+Z -&gt; Y
+&quot;
+
+# compute
+frontdoor = dosearch(data1, query1, graph1)
+
+# convert to Rmarkdown equation
+cat(paste(&quot;$$&quot;, frontdoor$formula, &quot;$$&quot;))</code></pre>
+<pre><code>## $$ \sum_{Z}\left(p(Z|X)\sum_{X}\left(p(X)p(Y|X,Z)\right)\right) $$</code></pre>
+<p><span class="math display">\[\sum_{Z}\left(p(Z|X)\sum_{X}\left(p(X)p(Y|X,Z)\right)\right)\]</span></p>
+</div>
 
 
 

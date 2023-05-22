@@ -142,3 +142,63 @@ Finally, we combine the two estimates by multiplication:
 coef(step1)["X"] * coef(step2)["Z"] 
 ```
 
+## Frontdoor Algebra 
+
+We require the following assumptions (https://stats.stackexchange.com/questions/312992/causal-effect-by-back-door-and-front-door-adjustments):
+
+- Full mediation: there is no directed path from `X` to `Y`, except through `Z`
+- Unconfoundedness 1: There is no open backdoor from `X` to `Z`
+- Unconfoundedness 2: All backdoors from `Z` to `Y` are blocked by `X`.
+
+Step 1: Under assumption 2, the relationship between `X` and `Z` is not confounded. See DAG at the top - there's no way to get from `X` to `Z` except the direct path. The other path is blocked by a collider at `Y`. As a result, we have:
+\[
+P(Z|\mbox{do}(x)) = P(Z|X)
+\]
+
+Step 2: In contrast, the relationship between `Z` and `Y` is confounded ($Z \leftarrow X \leftarrow U \rightarrow Y$. If we adjust for `X`, this blocks this path, and allows an unbiased estimate of the effect of `Z`. The backdoor formula is:
+
+\[
+P(Y|\mbox{do}(Z)) = \sum_X P(Y|X,Z)P(X)
+\]
+
+$$
+\begin{aligned}
+  P(Y|\mbox{do}(Z)) & = \sum_Z P(Y|\mbox{do}(X),Z)P(Z|\mbox{do}(X)) \\
+                    & = \sum_Z P(Y|\mbox{do}(Z))P(Z|\mbox{do}(X)) \\
+                    & = \sum_Z P(Y|\mbox{do}(Z))P(Z|X) \\
+                    & = \sum_Z \sum_X P(Y|X,Z)P(X)P(Z|X) \\
+                    & = \sum_Z P(Z|X) \sum_X P(Y|X,Z)P(X) 
+\end{aligned}
+$$
+
+Equation (1) conditions on `Z` and sums over its values. Equation (2) is allowed because the effect of `X` is entirely mediated by `Z`, and because `X` blocks the backdoor path from `Z` to `Y`. Intuitively, if we manipulate `Z`, it no longer matters what happened to `X`. Equation (3) is allowed because the relationship between `X` and `Z` is unconfounded. Equation (4) applies the backdoor adjustment formula to estimate the effect of `Z` on `Y` by conditioning on `X`. 
+
+Equation (5) is the frontdoor adjustment formula. The left part is the effect of `X` on `Z`. The right part is the effect of `Z` on `Y`.
+
+## **dosearch**
+
+The **dosearch** package for R includes an algorithm that can automatically apply the rules of do-calculus to convert DAGs to adjustment formulas. Instead of manipulating equations ourselves like we did above, we can simply call the `dosearch` function to obtain the frontdoor adjustment formula automatically:
+
+```{r}
+library('dosearch')
+
+data1 = "P(X, Y, Z)"
+
+query1 = "P(Y | do(X))"
+
+graph1 = "
+U -> X
+U -> Y
+X -> Z
+Z -> Y
+"
+
+# compute
+frontdoor = dosearch(data1, query1, graph1)
+
+# convert to Rmarkdown equation
+cat(paste("$$", frontdoor$formula, "$$"))
+```
+
+$$`r frontdoor$formula`$$
+
