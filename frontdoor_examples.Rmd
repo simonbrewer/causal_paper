@@ -35,3 +35,110 @@ update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman",
                                                color = "black"))
 ```
 
+Examples taken from: https://arelbundock.com/posts/frontdoor/
+
+## Front door path
+
+The front door path is used to replace a back door path when there is an unknown (suspected) confounder ($u$). But this has the condition that there needs to be at least one mediating factors between the intervention and the outcome. So this won't work:
+
+```{r}
+fd_dag <- dagify(x ~ u,
+                 y ~ x + u,
+                 coords = list(x = c(x = 1, y = 3, u = 2),
+                               y = c(x = 1, y = 1, u = 2)),
+                 exposure = "x",
+                 outcome = "y")
+
+ggdag(fd_dag) +
+  theme_dag()
+```
+
+But this will
+
+```{r}
+fd_dag <- dagify(x ~ u,
+                 z ~ x,
+                 y ~ z + u,
+                 coords = list(x = c(x = 1, y = 3, u = 2, z = 2),
+                               y = c(x = 1, y = 1, u = 2, z = 1)),
+                 exposure = "x",
+                 outcome = "y")
+
+ggdag(fd_dag) +
+  theme_dag()
+```
+
+In this DAG:
+
+- `x` is the intervention or covariate of causal interest
+- `y` is the outcome
+- `u` is an unknown confounder
+- `z` is a mediating variable (mediates `y ~ x`)
+
+Our goal is to estimate $P(Y|\mbox{do}(X))$. Unfortunately, this relationship between $X$ and $Y$ is confounded via a backdoor path with an unobserved variable $U$. The path is $X \leftarrow U \rightarrow Y$. Given the backdoor path, we can't estimate the causal relationship (or we can but it will be biased). 
+
+We can instead, estimate the effect of $X$ on $Y$ indirectly through the front door path ($X \rightarrow Z \rightarrow Y$), by decomposing it into two links:
+
+- The effect of $X$ and $Z$
+- The effect of $Z$ on $Y$ given $X$
+
+There are three steps here
+
+- Estimate $P(Z|\mbox{do}(X))$
+- Estimate $P(Y|\mbox{do}(Z), X)$
+- Combine the two estimates
+
+## Simulated data
+
+All binary:
+
+- `U`: $P=0.2$
+- `X`: $P=0.1 + U \times 0.6$
+- `Z`: $P=0.3 + X \times 0.5$
+- `Y`: $P=0.1 + U \times 0.3 + Z \times 0.5$
+
+```{r}
+N = 1e5
+U = rbinom(N, 1, prob = .2)
+X = rbinom(N, 1, prob = .1 + U * .6)
+Z = rbinom(N, 1, prob = .3 + X * .5)
+Y = rbinom(N, 1, prob = .1 + U * .3 + Z * .5)
+dat = data.frame(X, Z, Y)
+```
+
+The true effect of `X` on `Y` is $0.5 \times 0.5 = 0.25$. In this simple case, we should be able to obtain this effect by creating the two models (one for `Z`, one for `Y`) and multiplying the coefficients. First, start with a naive model (i.e. no accounting for any paths or mediators):
+
+```{r}
+fit <- lm(Y ~ X, dat)
+summary(fit)
+```
+
+Which results in a biased estimate of `r round(coef(fit)["X"], 3)`. We can also try a model that assumes an independent effect of `X` and `Y`:
+
+```{r}
+fit <- lm(Y ~ X + Z, dat)
+summary(fit)
+```
+
+And the effect is still biased (`r round(coef(fit)["X"], 3)`). 
+
+### Front-door adjustment
+
+First we estimate the effect of `X` on `Z`. Since there is no open backdoor, we do not need to control for other variables:
+
+```{r}
+step1 = lm(Z ~ X, dat)
+```
+
+Then, we estimate the effect of `Z` on `Y` while controlling for `X` to close the backdoor:
+
+```{r}
+step2 = lm(Y ~ Z + X, dat)
+```
+
+Finally, we combine the two estimates by multiplication:
+
+```{r}
+coef(step1)["X"] * coef(step2)["Z"] 
+```
+
