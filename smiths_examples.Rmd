@@ -1,0 +1,138 @@
+---
+title: "Smith's Examples"
+author: "Simon Brewer"
+date: "5/19/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+set.seed(123)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Examples taken from 'Evaluating Counterfactual Explanations Using Pearl's Counterfactual Method'. Bevan I Smith (arxiv.org)
+
+## Libraries and whatnot
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+# library(broom)
+library(patchwork)
+library(scales)
+library(dagitty)
+library(ggdag)
+library(latex2exp)  # Easily convert LaTeX into arcane plotmath expressions
+library(ggtext)     # Use markdown in ggplot labels
+
+# Create a cleaner serifed theme to use throughout
+theme_do_calc <- function() {
+  theme_dag(base_family = "Times New Roman") +
+    theme(plot.title = element_text(size = rel(1.5)),
+          plot.subtitle = element_markdown())
+}
+
+# Make all geom_dag_text() layers use these settings automatically
+update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman", 
+                                               fontface = "bold",
+                                               color = "black"))
+```
+
+## Causal structures
+
+In all the following we are interested in the causal effect of an intervention or endogenous factors (`X`) on an outcome (`Y`), given confounders (`Z`) and exogenous or unknown factors (`U`). The exogenous factors refer to all external features that we cannot account for
+
+### Chain (mediator)
+
+This represents a sequential path from intervention to outcome via a confounder (`X` &rarr; `Z` &rarr; `Y`). 
+
+```{r}
+chain_dag <- dagify(Z ~ X + Uz,
+                    Y ~ Z + Uy,
+                    coords = list(x = c(X = 1, Uz = 1, Z = 2, Y = 3, Uy = 4),
+                                  y = c(X = 1, Uz = 2, Z = 2, Y = 1, Uy = 1)),
+                    exposure = "X",
+                    outcome = "Y",
+                    latent = c("Uy", "Uz"))
+
+ggdag(chain_dag) +
+  theme_dag()
+```
+
+Equations:
+
+$$Z = f(X, U_Z)$$
+$$Y = f(Z, U_Y)$$
+
+Independence: `X` and `Y` are independent (conditioned on `Z`)
+
+```{r}
+impliedConditionalIndependencies(chain_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(chain_dag) +
+  theme_dag()
+```
+
+Separation:
+
+```{r}
+ggdag_dseparated(chain_dag) +
+  theme_dag()
+```
+
+```{r}
+ggdag_dseparated(chain_dag, controlling_for = "Z")
+```
+
+## Fork (common cause)
+
+This represents a spurious correlations (i.e. when there is a common cause that affects `X` and `Y`, then they will be correlated without existing causality). 
+
+```{r}
+fork_dag <- dagify(X ~ Z + Ux,
+                   Z ~ Uz,
+                    Y ~ Z + Uy,
+                    coords = list(x = c(Ux = 0, X = 1, Uz = 1, Z = 2, Y = 3, Uy = 4),
+                                  y = c(Ux = 1, X = 1, Uz = 2, Z = 2, Y = 1, Uy = 1)),
+                    exposure = "X",
+                    outcome = "Y",
+                    latent = c("Ux", "Uy", "Uz"))
+
+ggdag(fork_dag) +
+  theme_dag()
+```
+
+Equations:
+
+$$X = f(Z,U_X)$$
+$$Z = f(U_Z)$$
+$$Y = f(Z, U_Y)$$
+
+Independence: `X` and `Y` are independent (conditioned on `Z`)
+
+```{r}
+impliedConditionalIndependencies(fork_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(fork_dag) +
+  theme_dag()
+```
+
+Separation:
+
+```{r}
+ggdag_dseparated(fork_dag) +
+  theme_dag()
+```
+
+```{r}
+ggdag_dseparated(fork_dag, controlling_for = "Z")
+```
+
