@@ -39,36 +39,36 @@ update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman",
 
 In all the examples that follow, we are trying to estimate a causal relationship between `x` and `y`. I think this is $P(Y| \mbox{do}(X=x))$ **NEED TO CHECK THIS**
 
-## Confounders
+## Forks
 
 Confounders are anything that have an open path between the input / intervention variables and the outcome
 
-### Simple confounder 
+### Simple fork 
 
 This has no causal link between `x` and `y`, and a single confounder (`z`)
 
 ```{r}
-confounder_dag <- dagify(x ~ z,
+fork_dag <- dagify(x ~ z,
                          y ~ z,
                          coords = list(x = c(x = 1, y = 3, z = 2),
                                        y = c(x = 1, y = 1, z = 2)),
                          exposure = "x",
                          outcome = "y")
 
-ggdag(confounder_dag) +
+ggdag(fork_dag) +
   theme_dag()
 ```
 
 Independence: `x` and `y` are independent (conditioned on `z`)
 
 ```{r}
-impliedConditionalIndependencies(confounder_dag)
+impliedConditionalIndependencies(fork_dag)
 ```
 
 Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
 
 ```{r}
-ggdag_adjustment_set(confounder_dag) +
+ggdag_adjustment_set(fork_dag) +
   theme_dag()
 ```
 
@@ -104,32 +104,32 @@ fit <- lm(y ~ x + z, df)
 summary(fit)
 ```
 
-### Simple confounder 2
+### Simple fork 2
 
 This is the same graph as before, but now we include a real relationship between `x` and `y`
 
 ```{r}
-confounder_dag <- dagify(x ~ z,
+fork_dag <- dagify(x ~ z,
                          y ~ x + z,
                          coords = list(x = c(x = 1, y = 3, z = 2),
                                        y = c(x = 1, y = 1, z = 2)),
                          exposure = "x",
                          outcome = "y")
 
-ggdag(confounder_dag) +
+ggdag(fork_dag) +
   theme_dag()
 ```
 
 Independence: Now `x` and `y` have no conditional independence
 
 ```{r}
-impliedConditionalIndependencies(confounder_dag)
+impliedConditionalIndependencies(fork_dag)
 ```
 
 Adjustment set:
 
 ```{r}
-ggdag_adjustment_set(confounder_dag) +
+ggdag_adjustment_set(fork_dag) +
   theme_dag()
 ```
 
@@ -165,12 +165,12 @@ fit <- lm(y ~ x + z, df)
 summary(fit)
 ```
 
-### Two variable confounder 
+### Two variable fork 
 
 This is to illustrate Pearl's point about uncessary confounders. This graph has a backdoor path with two confounding variables (`z1` and `z2`). In order to test a causal link between `x` and `y`, we *only* need to control for one, as either will block the back door path 
 
 ```{r}
-confounder_dag <- dagify(x ~ z1,
+fork_dag <- dagify(x ~ z1,
                          z2 ~ z1,
                          y ~ z2,
                          coords = list(x = c(x = 1, y = 3, z1 = 1.5, z2 = 2.5),
@@ -178,20 +178,20 @@ confounder_dag <- dagify(x ~ z1,
                          exposure = "x",
                          outcome = "y")
 
-ggdag(confounder_dag) +
+ggdag(fork_dag) +
   theme_dag()
 ```
 
 Independence:
 
 ```{r}
-impliedConditionalIndependencies(confounder_dag)
+impliedConditionalIndependencies(fork_dag)
 ```
 
 Adjustment set: Now we get two adjustment sets, as controlling for either `z1` or `z2` removes the path
 
 ```{r}
-ggdag_adjustment_set(confounder_dag) +
+ggdag_adjustment_set(fork_dag) +
   theme_dag()
 ```
 
@@ -243,14 +243,12 @@ fit3 <- lm(y ~ x + z1 + z2, df)
 summary(fit3)
 ```
 
-**REDO THIS WITH A LINK**
-
-### Two variable confounder with causal link
+### Two variable fork with causal link
 
 This is to illustrate Pearl's point about uncessary confounders. This graph has a backdoor path with two confounding variables (`z1` and `z2`). In order to test a causal link between `x` and `y`, we *only* need to control for one, as either will block the back door path. This also adds a path between `x` and `y`
 
 ```{r}
-confounder_dag <- dagify(x ~ z1,
+fork_dag <- dagify(x ~ z1,
                          z2 ~ z1,
                          y ~ x + z2,
                          coords = list(x = c(x = 1, y = 3, z1 = 1.5, z2 = 2.5),
@@ -258,20 +256,20 @@ confounder_dag <- dagify(x ~ z1,
                          exposure = "x",
                          outcome = "y")
 
-ggdag(confounder_dag) +
+ggdag(fork_dag) +
   theme_dag()
 ```
 
 Independence:
 
 ```{r}
-impliedConditionalIndependencies(confounder_dag)
+impliedConditionalIndependencies(fork_dag)
 ```
 
 Adjustment set: Now we get two adjustment sets, as controlling for either `z1` or `z2` removes the path
 
 ```{r}
-ggdag_adjustment_set(confounder_dag) +
+ggdag_adjustment_set(fork_dag) +
   theme_dag()
 ```
 
@@ -323,7 +321,7 @@ fit3 <- lm(y ~ x + z1 + z2, df)
 summary(fit3)
 ```
 
-## Collider
+## Colliders
 
 This is the second type of path junction that can cause problems. Here, our two variables (`x` and `y`) are independent, but are both linked to `z`, the collider. Ths issue with this relationship is the bias that results *when we control for the collider*
 
