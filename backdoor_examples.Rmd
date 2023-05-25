@@ -142,13 +142,13 @@ ggdag_adjustment_set(chain_dag) +
 Simulated data - Equations
 
 - `x`: $N(5, 1)$
-- `x ~ z`: $\beta_1 = 4$
+- `z ~ x`: $\beta_1 = 4$
 - `y ~ x + z`: $\beta_2 = -1.5, \beta_3 = 2$
 
 ```{r}
 n <- 1000
-z <- rnorm(n, 10, 5)
-x <- z * 5 + rnorm(n, 0, 2)
+x <- rnorm(n, 10, 5)
+z <- x * 5 + rnorm(n, 0, 2)
 y <- x * -1.5 + z * 2 + rnorm(n, 0, 2)
 df <- data.frame(x, y, z)
 ```
@@ -168,6 +168,74 @@ Model controlling for `z`. This removes the backdoor path between `x` and `y` an
 
 ```{r}
 fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
+### Two variable chain (causal link)
+
+```{r}
+chain_dag <- dagify(z1 ~ x,
+                    z2 ~ z1,
+                    y ~ x + z2,
+                    coords = list(x = c(x = 1, y = 3, z1 = 1.5, z2 = 2.5),
+                                  y = c(x = 1, y = 1, z1 = 2, z2 = 1.5)),
+                    exposure = "x",
+                    outcome = "y")
+
+ggdag(chain_dag) +
+  theme_dag()
+```
+
+Independence: `x` and `y` are independent (conditioned on `z`)
+
+```{r}
+impliedConditionalIndependencies(chain_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(chain_dag) +
+  theme_dag()
+```
+
+Simulated data - Equations
+
+- `x`: $N(5, 1)$
+- `z1 ~ x`: $\beta_1 = 4$
+- `z2 ~ z1`: $\beta_2 = -2$
+- `y ~ x + z2`: $\beta_3 = -1.5, \beta_4 = 2$
+
+```{r}
+n <- 1000
+x <- rnorm(n, 10, 5)
+z1 <- x * 4 + rnorm(n, 0, 2)
+z2 <- z1 * -2 + rnorm(n, 0, 2)
+y <- x * -1.5 + z2 * 2 + rnorm(n, 0, 2)
+df <- data.frame(x, y, z1, z2)
+```
+
+```{r}
+pairs(df)
+```
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+```{r}
+fit <- lm(y ~ x + z1, df)
+summary(fit)
+```
+
+```{r}
+fit <- lm(y ~ x + z2, df)
+summary(fit)
+```
+
+```{r}
+fit <- lm(y ~ x + z1 + z2, df)
 summary(fit)
 ```
 
