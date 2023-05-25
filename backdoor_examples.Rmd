@@ -39,9 +39,72 @@ update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman",
 
 In all the examples that follow, we are trying to estimate a causal relationship between `x` and `y`. I think this is $P(Y| \mbox{do}(X=x))$ **NEED TO CHECK THIS**
 
-## Forks
+## Chains (mediation)
 
-Confounders are anything that have an open path between the input / intervention variables and the outcome
+This represents a sequential path from intervention to outcome via a confounder (`x` &rarr; `z` &rarr; `y`). Can bias causal link between `x` and `y`
+
+### Simple chain (no causal link)
+
+```{r}
+chain_dag <- dagify(z ~ x,
+                    y ~ z,
+                    coords = list(x = c(x = 1, y = 3, z = 2),
+                                  y = c(x = 1, y = 1, z = 2)),
+                    exposure = "x",
+                    outcome = "y")
+
+ggdag(chain_dag) +
+  theme_dag()
+```
+
+Independence: `x` and `y` are independent (conditioned on `z`)
+
+```{r}
+impliedConditionalIndependencies(chain_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(chain_dag) +
+  theme_dag()
+```
+
+Simulated data - Equations
+
+- `x`: $N(5, 1)$
+- `x ~ z`: $\beta_1 = 4$
+- `y ~ z`: $\beta_2 = 2$
+
+```{r}
+n <- 1000
+x <- rnorm(n, 5, 1)
+z <- x * 4 + rnorm(n, 0, 2)
+y <- z * 2 + rnorm(n, 0, 2)
+df <- data.frame(x, y, z)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x`. Ignoring the confounder results in spurious relationship between intervention and outcome
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Model controlling for `z`. This removes the backdoor path between `x` and `y` and removes the apparent relationship. Note that the coefficient between `z` and `y` is correct.
+
+```{r}
+fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
+## Forks (common cause)
+
+These occur when a confounding variable impacts both the intervention (`x`) and the outcome (`Y`). Can result in a spurious correlations (i.e. `x` and `y` will be correlated without existing causality). 
 
 ### Simple fork 
 
@@ -49,11 +112,11 @@ This has no causal link between `x` and `y`, and a single confounder (`z`)
 
 ```{r}
 fork_dag <- dagify(x ~ z,
-                         y ~ z,
-                         coords = list(x = c(x = 1, y = 3, z = 2),
-                                       y = c(x = 1, y = 1, z = 2)),
-                         exposure = "x",
-                         outcome = "y")
+                   y ~ z,
+                   coords = list(x = c(x = 1, y = 3, z = 2),
+                                 y = c(x = 1, y = 1, z = 2)),
+                   exposure = "x",
+                   outcome = "y")
 
 ggdag(fork_dag) +
   theme_dag()
@@ -110,11 +173,11 @@ This is the same graph as before, but now we include a real relationship between
 
 ```{r}
 fork_dag <- dagify(x ~ z,
-                         y ~ x + z,
-                         coords = list(x = c(x = 1, y = 3, z = 2),
-                                       y = c(x = 1, y = 1, z = 2)),
-                         exposure = "x",
-                         outcome = "y")
+                   y ~ x + z,
+                   coords = list(x = c(x = 1, y = 3, z = 2),
+                                 y = c(x = 1, y = 1, z = 2)),
+                   exposure = "x",
+                   outcome = "y")
 
 ggdag(fork_dag) +
   theme_dag()
@@ -171,12 +234,12 @@ This is to illustrate Pearl's point about uncessary confounders. This graph has 
 
 ```{r}
 fork_dag <- dagify(x ~ z1,
-                         z2 ~ z1,
-                         y ~ z2,
-                         coords = list(x = c(x = 1, y = 3, z1 = 1.5, z2 = 2.5),
-                                       y = c(x = 1, y = 1, z1 = 2, z2 = 1.5)),
-                         exposure = "x",
-                         outcome = "y")
+                   z2 ~ z1,
+                   y ~ z2,
+                   coords = list(x = c(x = 1, y = 3, z1 = 1.5, z2 = 2.5),
+                                 y = c(x = 1, y = 1, z1 = 2, z2 = 1.5)),
+                   exposure = "x",
+                   outcome = "y")
 
 ggdag(fork_dag) +
   theme_dag()
@@ -249,12 +312,12 @@ This is to illustrate Pearl's point about uncessary confounders. This graph has 
 
 ```{r}
 fork_dag <- dagify(x ~ z1,
-                         z2 ~ z1,
-                         y ~ x + z2,
-                         coords = list(x = c(x = 1, y = 3, z1 = 1.5, z2 = 2.5),
-                                       y = c(x = 1, y = 1, z1 = 2, z2 = 1.5)),
-                         exposure = "x",
-                         outcome = "y")
+                   z2 ~ z1,
+                   y ~ x + z2,
+                   coords = list(x = c(x = 1, y = 3, z1 = 1.5, z2 = 2.5),
+                                 y = c(x = 1, y = 1, z1 = 2, z2 = 1.5)),
+                   exposure = "x",
+                   outcome = "y")
 
 ggdag(fork_dag) +
   theme_dag()
@@ -331,8 +394,8 @@ collider_dag <- dagify(z ~ x,
                        z ~ y,
                        coords = list(x = c(x = 1, y = 3, z = 2),
                                      y = c(x = 1, y = 1, z = 2)),
-                         exposure = "x",
-                         outcome = "y")
+                       exposure = "x",
+                       outcome = "y")
 
 ggdag(collider_dag) +
   theme_dag()
@@ -404,8 +467,8 @@ collider_dag <- dagify(z ~ x,
                        y ~ x,
                        coords = list(x = c(x = 1, y = 3, z = 2),
                                      y = c(x = 1, y = 1, z = 2)),
-                         exposure = "x",
-                         outcome = "y")
+                       exposure = "x",
+                       outcome = "y")
 
 ggdag(collider_dag) +
   theme_dag()
