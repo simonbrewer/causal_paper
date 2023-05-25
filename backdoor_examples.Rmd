@@ -70,6 +70,16 @@ ggdag_adjustment_set(chain_dag) +
   theme_dag()
 ```
 
+```{r}
+ggdag_dseparated(chain_dag) +
+  theme_dag()
+```
+
+```{r}
+ggdag_dseparated(chain_dag, controlling_for = "z") +
+  theme_dag()
+```
+
 Simulated data - Equations
 
 - `x`: $N(5, 1)$
@@ -96,6 +106,65 @@ summary(fit)
 ```
 
 Model controlling for `z`. This removes the backdoor path between `x` and `y` and removes the apparent relationship. Note that the coefficient between `z` and `y` is correct.
+
+```{r}
+fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
+### Simple chain (causal link)
+
+```{r}
+chain_dag <- dagify(z ~ x,
+                    y ~ x + z,
+                    coords = list(x = c(x = 1, y = 3, z = 2),
+                                  y = c(x = 1, y = 1, z = 2)),
+                    exposure = "x",
+                    outcome = "y")
+
+ggdag(chain_dag) +
+  theme_dag()
+```
+
+Independence: `x` and `y` are independent (conditioned on `z`)
+
+```{r}
+impliedConditionalIndependencies(chain_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(chain_dag) +
+  theme_dag()
+```
+
+Simulated data - Equations
+
+- `x`: $N(5, 1)$
+- `x ~ z`: $\beta_1 = 4$
+- `y ~ x + z`: $\beta_2 = -1.5, \beta_3 = 2$
+
+```{r}
+n <- 1000
+z <- rnorm(n, 10, 5)
+x <- z * 5 + rnorm(n, 0, 2)
+y <- x * -1.5 + z * 2 + rnorm(n, 0, 2)
+df <- data.frame(x, y, z)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x`. Ignoring the confounder results in biased relationship between intervention and outcome
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Model controlling for `z`. This removes the backdoor path between `x` and `y` and results in correct coefficient estimation.
 
 ```{r}
 fit <- lm(y ~ x + z, df)
