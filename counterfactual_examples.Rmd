@@ -109,146 +109,37 @@ EX= 10 - 4 \times ED + U_{EX}
 S=65,000 + 2,500 \times EX + 5,000 \times ED + U_{S}
 \]
 
+### Simulated data
 
-
-
-
-Independence: `X` and `Y` are independent (conditioned on `Z`)
+1. `ED`:
 
 ```{r}
-impliedConditionalIndependencies(chain_dag)
+n = 1000
+ED = sample(c(0,1,2), size = n, replace = TRUE,
+            prob = c(0.6, 0.3, 0.1))
+
+table(ED)
 ```
 
-Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+2. `EX`:
 
 ```{r}
-ggdag_adjustment_set(chain_dag) +
-  theme_dag()
+U_EX = rpois(n, lambda = 2) - 1
+EX = 10 - 4 * ED + U_EX
+table(EX)
 ```
 
-Separation:
-
-```{r}
-ggdag_dseparated(chain_dag) +
-  theme_dag()
-```
-
-```{r}
-ggdag_dseparated(chain_dag, controlling_for = "Z")
-```
-
-## Fork (common cause)
-
-This represents a spurious correlations (i.e. when there is a common cause that affects `X` and `Y`, then they will be correlated without existing causality). 
-
-```{r}
-fork_dag <- dagify(X ~ Z + U_X,
-                   Z ~ U_Z,
-                   Y ~ Z + U_Y,
-                   coords = list(x = c(U_X = 0, X = 1, U_Z = 1, Z = 2, Y = 3, U_Y = 4),
-                                 y = c(U_X = 1, X = 1, U_Z = 2, Z = 2, Y = 1, U_Y = 1)),
-                   exposure = "X",
-                   outcome = "Y",
-                   latent = c("U_X", "U_Y", "U_Z"))
-
-ggdag(fork_dag) +
-  theme_dag()
-```
-
-Equations:
-
-$$X = f(Z,U_X)$$
-$$Z = f(U_Z)$$
-$$Y = f(Z, U_Y)$$
-
-Independence: `X` and `Y` are independent (conditioned on `Z`)
-
-```{r}
-impliedConditionalIndependencies(fork_dag)
-```
-
-Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
-
-```{r}
-ggdag_adjustment_set(fork_dag) +
-  theme_dag()
-```
-
-Separation:
-
-```{r}
-ggdag_dseparated(fork_dag) +
-  theme_dag()
-```
-
-```{r}
-ggdag_dseparated(fork_dag, controlling_for = "Z")
-```
-
-## Collider (common effect)
-
-This represents the existence of a variable that is impacted by both the intervention and the outcome (i.e. `X` &rarr; `Z` &larr; `Y`). Controlling for a collider can result in spurious correlation (as it links variations in `X` and `Y`). 
-
-```{r}
-collider_dag <- dagify(X ~ U_X,
-                       Z ~ X + Y + U_Z,
-                       Y ~ U_Y,
-                       coords = list(x = c(U_X = 0, X = 1, U_Z = 1, Z = 2, Y = 3, U_Y = 4),
-                                     y = c(U_X = 1, X = 1, U_Z = 2, Z = 2, Y = 1, U_Y = 1)),
-                       exposure = "X",
-                       outcome = "Y",
-                       latent = c("U_X", "U_Y", "U_Z"))
-
-ggdag(collider_dag) +
-  theme_dag()
-```
-
-Equations:
-
-$$X = f(U_X)$$
-$$Z = f(X,Y,U_Z)$$
-$$Y = f(U_Y)$$
-
-Independence: `X` and `Y` are independent (conditioned on `Z`)
-
-```{r}
-impliedConditionalIndependencies(collider_dag)
-```
-
-Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
-
-```{r}
-ggdag_adjustment_set(collider_dag) +
-  theme_dag()
-```
-
-Separation:
-
-```{r}
-ggdag_dseparated(collider_dag) +
-  theme_dag()
-```
-
-```{r}
-ggdag_dseparated(collider_dag, controlling_for = "Z")
-```
-
-## Difference between correlation models and causal models
-
-```{r}
-ml_dag <- dagify(Y ~ X + Z + U_Y,
-                 coords = list(x = c(X = 1, Z = 2, Y = 2, U_Y = 3),
-                               y = c(X = 2, Z = 2, Y = 1, U_Y = 2)),
-                 exposure = "X",
-                 outcome = "Y",
-                 latent = c("U_Y"))
-
-ggdag(ml_dag) +
-  theme_dag()
-```
-
-Equations:
-
-$$Y = f(X,Z,U_Y)$$
-
-
+>   #sample size
+> n <- 10
+>   #regression coefficients
+> beta0 <- 1
+> beta1 <- 0.2
+>   #generate covariate values
+> x <- runif(n=n, min=0, max=1.5)
+>   #compute mu's
+> mu <- exp(beta0 + beta1 * x)
+>   #generate Y-values
+> y <- rpois(n=n, lambda=mu)
+>   #data set
+> data <- data.frame(y=y, x=x)
+> data
