@@ -8,6 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 set.seed(123)
 knitr::opts_chunk$set(echo = TRUE)
+options(scipen=999)
 ```
 
 
@@ -124,22 +125,117 @@ table(ED)
 2. `EX`:
 
 ```{r}
-U_EX = rpois(n, lambda = 2) - 1
+U_EX = rpois(n, lambda = 2) - 2
 EX = 10 - 4 * ED + U_EX
 table(EX)
 ```
 
->   #sample size
-> n <- 10
->   #regression coefficients
-> beta0 <- 1
-> beta1 <- 0.2
->   #generate covariate values
-> x <- runif(n=n, min=0, max=1.5)
->   #compute mu's
-> mu <- exp(beta0 + beta1 * x)
->   #generate Y-values
-> y <- rpois(n=n, lambda=mu)
->   #data set
-> data <- data.frame(y=y, x=x)
-> data
+3. `S`:
+
+```{r}
+U_S = rnorm(n, 0, 500)
+S = 65000 + 2500 * EX + 5000 * ED + U_S
+hist(S)
+```
+
+### Plots
+
+```{r}
+boxplot(S ~ EX)
+boxplot(S ~ ED)
+```
+
+## Adjustment
+
+```{r}
+ggdag_adjustment_set(pcm_dag)
+```
+
+Naive model
+
+```{r}
+fit_S <- lm(S ~ EX)
+summary(fit_S)
+```
+
+Adjusted model
+
+```{r}
+fit_S <- lm(S ~ EX + ED)
+summary(fit_S)
+```
+
+Model for experience
+
+```{r}
+fit_EX = lm(EX ~ ED)
+summary(fit_EX)
+```
+
+## Naive counterfactual
+
+The standard way to estimate Alice's salary if she went to college would be to create a new'instance' for Alice with $ED=1$ and predict for that:
+
+```{r}
+alice_ed1 = data.frame(ED = 1, EX = 6, S = 81000)
+pred_naive = predict(fit_S, alice_ed1)
+pred_naive
+```
+
+Or an change in salary of `r round(predict(fit_S, alice_ed1) - alice_ed1$S)`. But this ignores the confounding effect of `ED` on `EX` as we will see below. 
+
+## Counterfactual
+
+### Set up individual to calculate counterfactual for:
+
+```{r}
+alice = data.frame(ED = 0, EX = 6, S = 81000)
+```
+
+### Get 'idiosyncratic factors' (i.e. predicted errors)
+
+```{r}
+(alice_us = alice$S - predict(fit_S, alice))
+```
+
+```{r}
+(alice_uex = alice$EX - predict(fit_EX, alice))
+```
+
+This tells us that Alice salary is different from the expected value ($E(S)$) by roughly `r round(alice_us)` dollars and her experience is different from $E(EX)$ by `r round(alice_uex)` years. 
+
+### Calculate counterfactual if Alice went to college
+
+First, what would the experience be, if Alice went to college ($EX_{ED=1}$), given $\beta_0 \approx 10$ and $\beta_1 \approx -4$ in `fit_EX`
+
+\[
+EX_{ED=1}(\mbox{Alice}) = \beta_0 + \beta_1 \times 1 + U_{EX}
+\]
+
+\[
+EX_{ED=1}(\mbox{Alice}) = 10 + (-4 \times 1) -4 = 2
+\]
+
+The fact that Alice went to college reduces her experience from 6 years to 2. We can also get this from the data:
+
+```{r}
+ex_ed1 = predict(fit_EX, alice_ed1) + alice_uex
+ex_ed1
+```
+
+From the model we get a roughly equivalent change from 6 to `r round(ex_ed1,1)` years of experience.
+
+With this change,m we can now plug all of the numbers into the salary equation (including the two idosyncratic factors):
+
+\[
+S_{ED=1)(\mbox{Alice})} = \beta_0 + \beta_1 \times EX_{ED=1}(\mbox{Alice}) + \beta_2 \times ED_{ED=1}(\mbox{Alice}) + U_S(\mbox{Alice})
+\]
+
+```{r}
+alice_ed1 = data.frame(ED = 1, EX = ex_ed1, S = 81000)
+pred_cf = predict(fit_S, alice_ed1) + alice_us
+pred_cf
+```
+
+Giving a final results of `r round(pred_cf)` dollars, which is `r round(pred_naive - pred_cf)` less than the naive prediction
+
