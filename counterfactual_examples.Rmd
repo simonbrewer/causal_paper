@@ -1,0 +1,254 @@
+---
+title: "Counterfactual Example"
+author: "Simon Brewer"
+date: "5/25/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+set.seed(123)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Examples taken from chapter 8 of The Book Of Why (Pearl, 2019)
+
+## Libraries and whatnot
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+# library(broom)
+library(patchwork)
+library(scales)
+library(dagitty)
+library(ggdag)
+library(latex2exp)  # Easily convert LaTeX into arcane plotmath expressions
+library(ggtext)     # Use markdown in ggplot labels
+
+# Create a cleaner serifed theme to use throughout
+theme_do_calc <- function() {
+  theme_dag(base_family = "Times New Roman") +
+    theme(plot.title = element_text(size = rel(1.5)),
+          plot.subtitle = element_markdown())
+}
+
+# Make all geom_dag_text() layers use these settings automatically
+update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman", 
+                                               fontface = "bold",
+                                               color = "black"))
+```
+
+## Salary example
+
+Data are
+
+- `EX`: number of years of experience
+- `ED`: Education level (0 = BS; 1 = MS; 2 = PhD)
+- `S`: Salary in `$`
+
+
+### Directed acyclic graph
+
+The graph is set up as a fork, with education impacting both experience and salary:
+
+```{r}
+dag1 <- dagify(EX ~ ED,
+               S ~ EX + ED,
+               coords = list(x = c(ED = 1, EX = 2, S = 3),
+                             y = c(ED = 1, EX = 2, S = 1)),
+               exposure = "EX",
+               outcome = "S")
+
+ggdag(dag1) +
+  theme_dag()
+```
+
+Equations are:
+
+$$EX = f(ED)$$
+$$S = f(ED, EX)$$
+
+For a counterfactual analysis, we extend this to include unobserved variables ($U_x$):
+
+```{r}
+pcm_dag <- dagify(ED ~ U_ED,
+               EX ~ ED + U_EX,
+               S ~ EX + ED + U_S,
+               coords = list(x = c(ED = 1, EX = 2, S = 3,
+                                   U_ED = 0.5, U_EX = 1.5, U_S = 3.5),
+                             y = c(ED = 1, EX = 2, S = 1,
+                                   U_ED = 1, U_EX = 2, U_S = 1)),
+               exposure = "EX",
+               outcome = "S", latent = c("U_ED", "U_EX", "U_S"))
+
+ggdag(pcm_dag) +
+  theme_dag()
+```
+
+Equations are:
+
+$$ED = f(U_{ED})$$
+$$EX = f(ED, U_{EX})$$
+
+$$S = f(ED, EX, U_{S})$$
+From Pearl: "We know these variables exist (e.g. Alice is a friend of the company's president) but they are too diverse and too numerous to incorporate explicitly..."
+
+## Data
+
+We start with two equations
+
+\[
+ED = U_{ED} = [0,1,2]
+\]
+
+\[
+EX= 10 - 4 \times ED + U_{EX}
+\]
+
+\[
+S=65,000 + 2,500 \times EX + 5,000 \times ED + U_{S}
+\]
+
+
+
+
+
+Independence: `X` and `Y` are independent (conditioned on `Z`)
+
+```{r}
+impliedConditionalIndependencies(chain_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(chain_dag) +
+  theme_dag()
+```
+
+Separation:
+
+```{r}
+ggdag_dseparated(chain_dag) +
+  theme_dag()
+```
+
+```{r}
+ggdag_dseparated(chain_dag, controlling_for = "Z")
+```
+
+## Fork (common cause)
+
+This represents a spurious correlations (i.e. when there is a common cause that affects `X` and `Y`, then they will be correlated without existing causality). 
+
+```{r}
+fork_dag <- dagify(X ~ Z + U_X,
+                   Z ~ U_Z,
+                   Y ~ Z + U_Y,
+                   coords = list(x = c(U_X = 0, X = 1, U_Z = 1, Z = 2, Y = 3, U_Y = 4),
+                                 y = c(U_X = 1, X = 1, U_Z = 2, Z = 2, Y = 1, U_Y = 1)),
+                   exposure = "X",
+                   outcome = "Y",
+                   latent = c("U_X", "U_Y", "U_Z"))
+
+ggdag(fork_dag) +
+  theme_dag()
+```
+
+Equations:
+
+$$X = f(Z,U_X)$$
+$$Z = f(U_Z)$$
+$$Y = f(Z, U_Y)$$
+
+Independence: `X` and `Y` are independent (conditioned on `Z`)
+
+```{r}
+impliedConditionalIndependencies(fork_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(fork_dag) +
+  theme_dag()
+```
+
+Separation:
+
+```{r}
+ggdag_dseparated(fork_dag) +
+  theme_dag()
+```
+
+```{r}
+ggdag_dseparated(fork_dag, controlling_for = "Z")
+```
+
+## Collider (common effect)
+
+This represents the existence of a variable that is impacted by both the intervention and the outcome (i.e. `X` &rarr; `Z` &larr; `Y`). Controlling for a collider can result in spurious correlation (as it links variations in `X` and `Y`). 
+
+```{r}
+collider_dag <- dagify(X ~ U_X,
+                       Z ~ X + Y + U_Z,
+                       Y ~ U_Y,
+                       coords = list(x = c(U_X = 0, X = 1, U_Z = 1, Z = 2, Y = 3, U_Y = 4),
+                                     y = c(U_X = 1, X = 1, U_Z = 2, Z = 2, Y = 1, U_Y = 1)),
+                       exposure = "X",
+                       outcome = "Y",
+                       latent = c("U_X", "U_Y", "U_Z"))
+
+ggdag(collider_dag) +
+  theme_dag()
+```
+
+Equations:
+
+$$X = f(U_X)$$
+$$Z = f(X,Y,U_Z)$$
+$$Y = f(U_Y)$$
+
+Independence: `X` and `Y` are independent (conditioned on `Z`)
+
+```{r}
+impliedConditionalIndependencies(collider_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(collider_dag) +
+  theme_dag()
+```
+
+Separation:
+
+```{r}
+ggdag_dseparated(collider_dag) +
+  theme_dag()
+```
+
+```{r}
+ggdag_dseparated(collider_dag, controlling_for = "Z")
+```
+
+## Difference between correlation models and causal models
+
+```{r}
+ml_dag <- dagify(Y ~ X + Z + U_Y,
+                 coords = list(x = c(X = 1, Z = 2, Y = 2, U_Y = 3),
+                               y = c(X = 2, Z = 2, Y = 1, U_Y = 2)),
+                 exposure = "X",
+                 outcome = "Y",
+                 latent = c("U_Y"))
+
+ggdag(ml_dag) +
+  theme_dag()
+```
+
+Equations:
+
+$$Y = f(X,Z,U_Y)$$
+
+
