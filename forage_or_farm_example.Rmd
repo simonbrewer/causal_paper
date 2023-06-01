@@ -1,7 +1,7 @@
 ---
-title: "WNAI Causal Diagram"
+title: "Forage Or Farm Causal Diagram"
 author: "Simon Brewer"
-date: "5/31/2023"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: html_document
 ---
 
