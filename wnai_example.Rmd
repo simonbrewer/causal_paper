@@ -1,0 +1,151 @@
+---
+title: "WNAI Causal Diagram"
+author: "Simon Brewer"
+date: "5/31/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries and whatnot
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+# library(broom)
+library(patchwork)
+library(scales)
+library(dagitty)
+library(ggdag)
+library(latex2exp)  # Easily convert LaTeX into arcane plotmath expressions
+library(ggtext)     # Use markdown in ggplot labels
+
+# Create a cleaner serifed theme to use throughout
+theme_do_calc <- function() {
+  theme_dag(base_family = "Times New Roman") +
+    theme(plot.title = element_text(size = rel(1.5)),
+          plot.subtitle = element_markdown())
+}
+
+# Make all geom_dag_text() layers use these settings automatically
+update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman", 
+                                               fontface = "bold",
+                                               color = "black"))
+```
+
+## DAG 1
+
+Model linking:
+
+- climate (temperature and precipitation)
+- society (density)
+- animals (richness)
+- plants (richness)
+
+
+```{r}
+wnai_dag <- dagify(density ~ temp + precip,
+                    animal ~ temp + precip + density,
+                    plant ~ temp + precip + density + animal,
+                    coords = list(x = c(temp = 1, precip = 1, 
+                                        density = 2, animal = 2,
+                                        plant = 3),
+                                  y = c(temp = 1, precip = 3, 
+                                        density = 1, animal = 3,
+                                        plant = 2)))
+
+ggdag(wnai_dag) +
+  theme_dag()
+```
+
+```{r}
+impliedConditionalIndependencies(wnai_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(wnai_dag,
+                    exposure = "density",
+                    outcome = "plant") +
+  theme_dag()
+```
+
+```{r}
+ggdag_adjustment_set(wnai_dag,
+                    exposure = "temp",
+                    outcome = "plant") +
+  theme_dag()
+```
+
+```{r}
+ggdag_adjustment_set(wnai_dag,
+                    exposure = "precip",
+                    outcome = "plant") +
+  theme_dag()
+```
+
+```{r}
+ggdag_adjustment_set(wnai_dag,
+                    exposure = "animal",
+                    outcome = "plant") +
+  theme_dag()
+```
+
+Path example (Density -> Plant)
+
+```{r}
+ggdag_paths(wnai_dag, from = "density", to = "plant",
+            node_size = 12, text_size = 2.5)
+```
+
+Colliders
+
+```{r}
+ggdag_collider(wnai_dag) +
+  theme_dag()
+```
+
+## DAG 2 
+
+Includes agriculture and language
+
+```{r}
+wnai_dag <- dagify(density ~ temp + precip,
+                   agri  ~ density + temp + precip,
+                    animal ~ temp + precip + density + language,
+                    plant ~ temp + precip + density + animal + agri,
+                    coords = list(x = c(temp = 1, precip = 1, 
+                                        density = 2, animal = 2.5,
+                                        agri = 3, language = 1,
+                                        plant = 4),
+                                  y = c(temp = 2, precip = 3, 
+                                        density = 1, animal = 4,
+                                        agri = 1, language = 4,
+                                        plant = 2.5)))
+
+ggdag(wnai_dag) +
+  theme_dag()
+```
+
+```{r}
+impliedConditionalIndependencies(wnai_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(wnai_dag,
+                    exposure = "density",
+                    outcome = "plant") +
+  theme_dag()
+```
+
+```{r}
+ggdag_adjustment_set(wnai_dag,
+                    exposure = "animal",
+                    outcome = "plant") +
+  theme_dag()
+```
+
