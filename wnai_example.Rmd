@@ -100,6 +100,14 @@ ggdag_paths(wnai_dag, from = "density", to = "plant",
             node_size = 12, text_size = 2.5)
 ```
 
+```{r}
+ggdag_adjustment_set(wnai_dag,
+                    exposure = "density",
+                    outcome = "plant") +
+  theme_dag()
+```
+
+
 Colliders
 
 ```{r}
@@ -114,11 +122,11 @@ Includes agriculture and language
 ```{r}
 wnai_dag <- dagify(density ~ temp + precip,
                    agri  ~ density + temp + precip,
-                    animal ~ temp + precip + density + language,
-                    plant ~ temp + precip + density + animal + agri,
+                    animal ~ temp + precip + density,
+                    plant ~ temp + precip + density + animal + agri + language,
                     coords = list(x = c(temp = 1, precip = 1, 
                                         density = 2, animal = 2.5,
-                                        agri = 3, language = 1,
+                                        agri = 3, language = 3.5,
                                         plant = 4),
                                   y = c(temp = 2, precip = 3, 
                                         density = 1, animal = 4,
@@ -137,7 +145,35 @@ Adjustment set: shows what adjustment is necessary to obtain the causal link bet
 
 ```{r}
 ggdag_adjustment_set(wnai_dag,
+                    exposure = "temp",
+                    outcome = "plant") +
+  theme_dag()
+```
+
+```{r}
+ggdag_adjustment_set(wnai_dag,
+                    exposure = "precip",
+                    outcome = "plant") +
+  theme_dag()
+```
+
+```{r}
+ggdag_adjustment_set(wnai_dag,
                     exposure = "density",
+                    outcome = "animal") +
+  theme_dag()
+```
+
+```{r}
+ggdag_adjustment_set(wnai_dag,
+                    exposure = "density",
+                    outcome = "plant") +
+  theme_dag()
+```
+
+```{r}
+ggdag_adjustment_set(wnai_dag,
+                    exposure = "agri",
                     outcome = "plant") +
   theme_dag()
 ```
