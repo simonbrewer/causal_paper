@@ -78,9 +78,9 @@ dat2 <- data.frame(precip = dat$MonthlyMeanPrecip,
 
 ## Model 1: Plants
 
-Causal link to be tested: `plant ~ density`
+Causal link to be tested: `plants ~ density`. 'Real' value is `r round(b_dp, 2)`.
 
-Let's check the adjustment set for this. There are two forks (via `precip` and `temp`), which create backdoor paths that need to be controlled for
+Let's check the adjustment set for this. There are two forks (via `precip` and `temp`), which create backdoor paths that need to be controlled for. In addition, `agri` forms a chain through to plant richness and will need to be controlled for
 
 ```{r}
 ggdag_adjustment_set(wnai_dag, 
@@ -90,7 +90,7 @@ ggdag_adjustment_set(wnai_dag,
   theme_dag()
 ```
 
-There are also two potential colliders (`animal` and `agri`), which should be avoided. As long as we leave these alone, we don't introduce any correlation
+There is also a potential collider (`animal`), which should be avoided. As long as we leave this alone, we don't introduce any correlation
 
 ```{r}
 ggdag_collider(wnai_dag) +
@@ -114,7 +114,7 @@ summary(fit)
 Include controls for backdoor confounders *and* collider (`animal`)
 
 ```{r}
-fit <- lm(plant ~ density + precip + temp + animal + agri, df)
+fit <- lm(plant ~ density + precip + temp + agri + animal, df)
 summary(fit)
 ```
 
@@ -125,7 +125,7 @@ summary(fit)
 Final model (ignore colliders)
 
 ```{r}
-fit <- lm(plant ~ density + precip + temp, df)
+fit <- lm(plant ~ density + precip + temp + agri, df)
 summary(fit)
 ```
 
@@ -136,17 +136,30 @@ summary(fit)
 Example adding independent variable (it's not correlated), but as it's independent, it does not bias the estimate
 
 ```{r}
-fit <- lm(plant ~ density + precip + temp + lang, df)
+fit <- lm(plant ~ density + precip + temp + agri + lang, df)
 summary(fit)
 ```
 
 `density` coefficient: `r round(coef(fit)['density'], 2)`
 
+### tl;dr
+
+Testing the causal link between plant richness and population density requires
+
+- Closing the backdoor paths (precip and temp)
+- Adding `agri` as a confounder
+- Not adding `animal` as a collidor
+
 ## Model 2: Animal
 
-Causal link to be tested: `animal ~ density`. 'Real' value is `r round(b_dp, 2)`.
+Causal link to be tested: `animal ~ density`. 'Real' value is `r round(b_da, 2)`.
 
-Let's check the adjustment set for this. There are the same two forks (via `precip` and `temp`), which create backdoor paths that need to be controlled for
+Let's check the adjustment set for this. There are the same two forks (via `precip` and `temp`), which create backdoor paths that need to be controlled for, There are *two* chains now
+
+- `density` &rarr; `plant` &rarr; `animal` 
+- `density` &rarr; `agri` &rarr; `animal` 
+
+And we'll need to control for these two intermediate variables
 
 ```{r}
 ggdag_adjustment_set(wnai_dag, 
@@ -156,7 +169,7 @@ ggdag_adjustment_set(wnai_dag,
   theme_dag()
 ```
 
-While there are the same set of colliders, none are children of `plant` so we don't need to worry about adjusting for these
+While there are the same set of colliders, none are children of `animal` so we don't need to worry about adjusting for these
 
 ```{r}
 ggdag_collider(wnai_dag) +
@@ -187,23 +200,38 @@ summary(fit)
 
 ### 2c
 
-Final model (all possible confoudners)
+Final model (all possible confounders (except agriculture as there is no path?)
 
 ```{r}
-fit <- lm(animal ~ density + precip + temp + plant + agri + lang, df)
+fit <- lm(animal ~ density + precip + temp + plant + lang + agri, df)
 summary(fit)
 ```
 
 `density` coefficient: `r round(coef(fit)['density'], 2)`
 
-### 2d
+### tl;dr
 
-Example removing independent variable (it's not correlated)
+Testing the causal link between animal richness and population density requires
+
+- Closing the backdoor paths (precip and temp)
+- Adding `plant` as a confounder
+- Not including (or optionally including `agri`). Although this is connected to `animal` (see d-sep diagram), this path is closed by controlling for `plant`
 
 ```{r}
-fit <- lm(animal ~ density + precip + temp + plant + agri, df)
-summary(fit)
+ggdag_dseparated(wnai_dag, from = "agri", to = "animal")
 ```
 
-`density` coefficient: `r round(coef(fit)['density'], 2)`
+To illustrate, here are the open paths between `density` and `animal` without a control on `plant` (but with controls on the backdoor paths). Note that the path through `agri` remains open. 
+
+```{r}
+ggdag_paths(wnai_dag, from = "density", to = "animal", 
+            adjust_for = c("temp", "precip"))
+```
+
+Here is the same with a control added for `plant`, which only leaves the direct path:
+
+```{r}
+ggdag_paths(wnai_dag, from = "density", to = "animal", 
+            adjust_for = c("temp", "precip", "plant"))
+```
 
