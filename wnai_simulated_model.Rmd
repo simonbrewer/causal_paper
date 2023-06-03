@@ -1,0 +1,239 @@
+---
+title: "WNAI model"
+author: "Simon Brewer"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+set.seed(42)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries and whatnot
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+# library(broom)
+library(patchwork)
+library(scales)
+library(dagitty)
+library(ggdag)
+library(latex2exp)  # Easily convert LaTeX into arcane plotmath expressions
+library(ggtext)     # Use markdown in ggplot labels
+
+# Create a cleaner serifed theme to use throughout
+theme_do_calc <- function() {
+  theme_dag(base_family = "Times New Roman") +
+    theme(plot.title = element_text(size = rel(1.5)),
+          plot.subtitle = element_markdown())
+}
+
+# Make all geom_dag_text() layers use these settings automatically
+update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman", 
+                                               fontface = "bold",
+                                               color = "black"))
+```
+
+## DAG
+
+```{r}
+wnai_dag <- dagify(density ~ temp + precip,
+                   agri  ~ density + temp + precip,
+                    animal ~ temp + precip + density,
+                    plant ~ temp + precip + density + animal + agri + language,
+                    coords = list(x = c(temp = 1, precip = 1, 
+                                        density = 2, animal = 2.5,
+                                        agri = 3, language = 3.5,
+                                        plant = 4),
+                                  y = c(temp = 2, precip = 3, 
+                                        density = 1, animal = 4,
+                                        agri = 1, language = 4,
+                                        plant = 2.5)))
+
+ggdag(wnai_dag) +
+  theme_dag()
+```
+
+## Simulated data
+
+- `precip`: $lognorm(20, 5)$
+- `temp`: $N(0, 5)$
+- `lang`: $[0,3]$
+- `density`: $10 \times precip + 20 \times temp + rnorm(0, 10)$
+- `animal`: $10 \times precip + 30 \times temp - 5 \times density + rnorm(0, 10)$
+- `agri`: $25 \times precip + 10 \times temp + 10 \times density + rnorm(0, 10)$
+- `plant`: $4 \times precip + 2 \times temp - 2 \times density - 3 \times agri + 2 \times lang + rnorm(0, 10)$
+
+```{r}
+n = 1000
+precip = rlnorm(n, log(20), log(2))
+precip = rnorm(n, 200, 20)
+temp = rnorm(n, 0, 1)
+lang = sample(c(0,1,2,3), n, replace = TRUE)
+```
+
+```{r}
+density = 10 * precip + 200 * temp + rnorm(n, 0, 5)
+animal = 1000 + (2 * precip) + (50 * temp) - 0.5 * density + rnorm(n, 0, 5)
+agri = 25 * precip + 10 * temp + 10 * density + rnorm(n, 0, 50)
+
+plant = 1e5 + 4 * precip + 10 * temp - 0.1 * density - 0.1 * agri + 1e4 * lang + rnorm(n, 0, 50)
+
+plant = 1e5 + 4 * precip + 10 * temp - 0.1 * density - 0.1 * agri + 1 * lang + rnorm(n, 0, 50)
+```
+
+```{r}
+plot(precip, density)
+plot(temp, density)
+```
+
+```{r}
+plot(density, animal)
+```
+
+```{r}
+plot(density, agri)
+```
+
+```{r}
+plot(plant, precip)
+plot(plant, temp)
+plot(plant, density)
+plot(plant, agri)
+plot(plant, animal)
+plot(plant, lang)
+```
+
+```{r}
+df = data.frame(temp, precip, lang, 
+                density, animal, agri, plant)
+```
+
+## Model 1: Animal
+
+Causal link to be tested: `animal ~ density`. Let's check the adjustment set for this. There are two forks (via `precip` and `temp`), which create backdoor paths that need to be controlled for
+
+```{r}
+ggdag_adjustment_set(wnai_dag, 
+                     exposure = "density",
+                     outcome = "animal",
+                     shadow = TRUE) +
+  theme_dag()
+```
+
+There are also two potential colliders (`plant` and `agri`), which should be avoided. As long as we leave these alone, we don't introduce any correlation
+
+```{r}
+ggdag_collider(wnai_dag) +
+  theme_dag()
+```
+
+
+### Naive model
+
+Only the direct path from `density` to `animal`
+
+```{r}
+fit <- lm(animal ~ density, df)
+summary(fit)
+```
+
+`density` coefficient: `r round(coef(fit)['density'], 2)`
+
+### Model 2
+
+Include controls for backdoor confounders *and* collider (`plant`)
+
+```{r}
+fit <- lm(animal ~ density + precip + temp + plant + agri, df)
+summary(fit)
+```
+
+`density` coefficient: `r round(coef(fit)['density'], 2)`
+
+### Model 3
+
+Final model (ignore colliders)
+
+```{r}
+fit <- lm(animal ~ density + precip + temp, df)
+summary(fit)
+```
+
+`density` coefficient: `r round(coef(fit)['density'], 2)`
+
+### Model 4
+
+Example adding independent variable (it's not correlated), but as it's independent, it does not bias the estimate
+
+```{r}
+fit <- lm(animal ~ density + precip + temp + lang, df)
+summary(fit)
+```
+
+`density` coefficient: `r round(coef(fit)['density'], 2)`
+
+## Model 1: Animal
+
+Causal link to be tested: `plant ~ density`. Let's check the adjustment set for this. There are the same two forks (via `precip` and `temp`), which create backdoor paths that need to be controlled for
+
+```{r}
+ggdag_adjustment_set(wnai_dag, 
+                     exposure = "density",
+                     outcome = "plant",
+                     shadow = TRUE) +
+  theme_dag()
+```
+
+While there are the same set of colliders, none are children of `plant` so we don't need to worry about adjusting for these
+
+```{r}
+ggdag_collider(wnai_dag) +
+  theme_dag()
+```
+
+### Naive model
+
+Only the direct path from `density` to `plant`
+
+```{r}
+fit <- lm(plant ~ density, df)
+summary(fit)
+```
+
+`density` coefficient: `r round(coef(fit)['density'], 2)`
+
+### Model 2
+
+Include controls for backdoor confounders
+
+```{r}
+fit <- lm(plant ~ density + precip + temp, df)
+summary(fit)
+```
+
+`density` coefficient: `r round(coef(fit)['density'], 2)`
+
+### Model 3
+
+Final model (ignore colliders)
+
+```{r}
+fit <- lm(plant ~ density + precip + temp + animal + agri + lang, df)
+summary(fit)
+```
+
+`density` coefficient: `r round(coef(fit)['density'], 2)`
+
+### Model 4
+
+Example adding independent variable (it's not correlated), but as it's independent, it does not bias the estimate
+
+```{r}
+fit <- lm(animal ~ density + precip + temp + lang, df)
+summary(fit)
+```
+
+`density` coefficient: `r round(coef(fit)['density'], 2)`
+
