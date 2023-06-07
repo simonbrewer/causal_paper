@@ -1,0 +1,174 @@
+---
+title: "Causal Mediation Examples"
+author: "Simon Brewer"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+set.seed(123)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries and whatnot
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+# library(broom)
+library(patchwork)
+library(scales)
+library(dagitty)
+library(ggdag)
+library(latex2exp)  # Easily convert LaTeX into arcane plotmath expressions
+library(ggtext)     # Use markdown in ggplot labels
+
+# Create a cleaner serifed theme to use throughout
+theme_do_calc <- function() {
+  theme_dag(base_family = "Times New Roman") +
+    theme(plot.title = element_text(size = rel(1.5)),
+          plot.subtitle = element_markdown())
+}
+
+# Make all geom_dag_text() layers use these settings automatically
+update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman", 
+                                               fontface = "bold",
+                                               color = "black"))
+```
+
+## Examples
+
+In all the examples that follow, we are trying to estimate a causal relationship between `x` and `y`. I think this is $P(Y| \mbox{do}(X=x))$ **NEED TO CHECK THIS**
+
+## Chains
+
+This represents a sequential path from intervention to outcome via a confounder (`x` &rarr; `z` &rarr; `y`). Can bias causal link between `x` and `y` *if `z` is included*. 
+
+### Simple chain (no direct link)
+
+```{r}
+chain_dag <- dagify(z ~ x,
+                    y ~ z,
+                    coords = list(x = c(x = 1, y = 3, z = 2),
+                                  y = c(x = 1, y = 1, z = 2)),
+                    exposure = "x",
+                    outcome = "y")
+
+ggdag(chain_dag) +
+  theme_dag()
+```
+
+Independence: `x` and `y` are independent (conditioned on `z`)
+
+```{r}
+impliedConditionalIndependencies(chain_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(chain_dag) +
+  theme_dag()
+```
+
+Simulated data - Equations
+
+- `x`: $N(5, 1)$
+- `x ~ z`: $\beta_1 = 4$
+- `y ~ z`: $\beta_2 = 2$
+
+```{r}
+n <- 1000
+x <- rnorm(n, 5, 1)
+z <- x * 4 + rnorm(n, 0, 2)
+y <- z * 2 + rnorm(n, 0, 2)
+df <- data.frame(x, y, z)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x`. If we ignore the confounder, we get the total effect of `x` on `y`. This includes any direct effect (`x` &rarr; `y`) and and indirect effect (`x` &rarr; `z` &rarr; `y`). In a simple linear case, the total effect should be the linear combination of these two equations. Here we have:
+
+- $z = x \times 4$
+- $y = z \times 2$
+- No direct effect
+
+So the total direct effect via `z` is $2 \times 4 = 8$. As there is no direct effect, this is the causal effect of `x` on `y`:
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Model controlling for `z`. This removes the path between `x` and `y` and removes the apparent relationship. Now we only see the relationship between `z` and `y`. This is *overcontrol*: we've biased the estimate of the causal link between `x` and `y` in question by controlling for the intermediate variable
+
+```{r}
+fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
+### Simple chain (direct link)
+
+```{r}
+chain_dag <- dagify(z ~ x,
+                    y ~ x + z,
+                    coords = list(x = c(x = 1, y = 3, z = 2),
+                                  y = c(x = 1, y = 1, z = 2)),
+                    exposure = "x",
+                    outcome = "y")
+
+ggdag(chain_dag) +
+  theme_dag()
+```
+
+Independence: `x` and `y` are *not* independent (even conditioned on `z`)
+
+```{r}
+impliedConditionalIndependencies(chain_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(chain_dag) +
+  theme_dag()
+```
+
+Simulated data - Equations
+
+- `x`: $N(5, 1)$
+- `z ~ x`: $\beta_1 = 5$
+- `y ~ x + z`: $\beta_2 = -1.5, \beta_3 = 2$
+
+```{r}
+n <- 1000
+x <- rnorm(n, 10, 5)
+z <- x * 5 + rnorm(n, 0, 2)
+y <- x * -1.5 + z * 2 + rnorm(n, 0, 2)
+df <- data.frame(x, y, z)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x`. Ignoring the confounder gives us the total causal effect. Here, we have three effects at play:
+
+- $z = x \times 5$
+- $y = z \times 2 + x \times -1.5$
+
+Now the indirect effect via `z` is $5 \times 2 = 10$, and the direct effect is $-1.5$, giving us a total effect of $10 - 1.5 = 8.5$. Let's see what the model says:
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Model controlling for `z`. By controlling for `z`, we no longer can observe the total effect of `x` (overcontrol). However, this does isolate the 2 single paths `x` &rarr; `y` and `z` &rarr; `y` correctly.
+
+```{r}
+fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
