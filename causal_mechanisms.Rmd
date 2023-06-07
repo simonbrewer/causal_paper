@@ -39,11 +39,11 @@ update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman",
 
 In all the examples that follow, we are trying to estimate a causal relationship between `x` and `y`. I think this is $P(Y| \mbox{do}(X=x))$ **NEED TO CHECK THIS**
 
-## Chains (mediation)
+## Chains
 
 This represents a sequential path from intervention to outcome via a confounder (`x` &rarr; `z` &rarr; `y`). Can bias causal link between `x` and `y` *if it is included*. 
 
-### Simple chain (no causal link)
+### Simple chain (no direct link)
 
 ```{r}
 chain_dag <- dagify(z ~ x,
@@ -106,21 +106,21 @@ Model of `y ~ x`. If we ignore the confounder, we get the total effect of `x` on
 - $y = z \times 2$
 - No direct effect
 
-So the total causal effect via `z` is $2 \times 4 = 8$. As there is no direct effect, this should be roughly what we estimate
+So the total indirect effect via `z` is $2 \times 4 = 8$. As there is no direct effect, this is equivalent to the total causal effect and should be what we estimate
 
 ```{r}
 fit <- lm(y ~ x, df)
 summary(fit)
 ```
 
-Model controlling for `z`. This removes the path between `x` and `y` and removes the apparent relationship. Now we only see the relationship between `z` and `y`. This is *overcontrol*: we've biased the estimate of the relationship in question by controlling for the intermediate variable
+Model controlling for `z`. This removes the path between `x` and `y` and removes the apparent relationship. Now we only see the relationship between `z` and `y`. This is *overcontrol*: we've biased the estimate of the causal relationship of interest by controlling for the intermediate variable
 
 ```{r}
 fit <- lm(y ~ x + z, df)
 summary(fit)
 ```
 
-### Simple chain (causal link)
+### Simple chain (direct link)
 
 ```{r}
 chain_dag <- dagify(z ~ x,
@@ -134,7 +134,7 @@ ggdag(chain_dag) +
   theme_dag()
 ```
 
-Independence: `x` and `y` are independent (conditioned on `z`)
+Independence: `x` and `y` are not independent (conditioned on `z`)
 
 ```{r}
 impliedConditionalIndependencies(chain_dag)
