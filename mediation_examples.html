@@ -466,8 +466,8 @@ summary(fit)</code></pre>
 <code>x</code> and <code>y</code> and removes the apparent relationship.
 Now we only see the relationship between <code>z</code> and
 <code>y</code>. This is <em>overcontrol</em>: we’ve biased the estimate
-of the relationship in question by controlling for the intermediate
-variable</p>
+of the causal link between <code>x</code> and <code>y</code> by
+controlling for the intermediate variable</p>
 <pre class="r"><code>fit &lt;- lm(y ~ x + z, df)
 summary(fit)</code></pre>
 <pre><code>## 

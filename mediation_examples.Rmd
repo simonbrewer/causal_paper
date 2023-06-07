@@ -101,7 +101,7 @@ fit <- lm(y ~ x, df)
 summary(fit)
 ```
 
-Model controlling for `z`. This removes the path between `x` and `y` and removes the apparent relationship. Now we only see the relationship between `z` and `y`. This is *overcontrol*: we've biased the estimate of the causal link between `x` and `y` in question by controlling for the intermediate variable
+Model controlling for `z`. This removes the path between `x` and `y` and removes the apparent relationship. Now we only see the relationship between `z` and `y`. This is *overcontrol*: we've biased the estimate of the causal link between `x` and `y` by controlling for the intermediate variable
 
 ```{r}
 fit <- lm(y ~ x + z, df)
