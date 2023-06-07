@@ -1,0 +1,684 @@
+---
+title: "Causal Backdoor Path Examples"
+author: "Simon Brewer"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+set.seed(123)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries and whatnot
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+# library(broom)
+library(patchwork)
+library(scales)
+library(dagitty)
+library(ggdag)
+library(latex2exp)  # Easily convert LaTeX into arcane plotmath expressions
+library(ggtext)     # Use markdown in ggplot labels
+
+# Create a cleaner serifed theme to use throughout
+theme_do_calc <- function() {
+  theme_dag(base_family = "Times New Roman") +
+    theme(plot.title = element_text(size = rel(1.5)),
+          plot.subtitle = element_markdown())
+}
+
+# Make all geom_dag_text() layers use these settings automatically
+update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman", 
+                                               fontface = "bold",
+                                               color = "black"))
+```
+
+## Examples
+
+In all the examples that follow, we are trying to estimate a causal relationship between `x` and `y`. I think this is $P(Y| \mbox{do}(X=x))$ **NEED TO CHECK THIS**
+
+## Chains (mediation)
+
+This represents a sequential path from intervention to outcome via a confounder (`x` &rarr; `z` &rarr; `y`). Can bias causal link between `x` and `y` *if it is included*. 
+
+### Simple chain (no causal link)
+
+```{r}
+chain_dag <- dagify(z ~ x,
+                    y ~ z,
+                    coords = list(x = c(x = 1, y = 3, z = 2),
+                                  y = c(x = 1, y = 1, z = 2)),
+                    exposure = "x",
+                    outcome = "y")
+
+ggdag(chain_dag) +
+  theme_dag()
+```
+
+Independence: `x` and `y` are independent (conditioned on `z`)
+
+```{r}
+impliedConditionalIndependencies(chain_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(chain_dag) +
+  theme_dag()
+```
+
+```{r}
+ggdag_dseparated(chain_dag) +
+  theme_dag()
+```
+
+Controlling for `z` is overcontrolling. This biases or removes the link from `x` to `z`. Under the assumption that the DAG is a full description of the system, we do not need to control for variables within chains, if we are interested in the *total causal effect* of `x` on `y`
+
+```{r}
+ggdag_dseparated(chain_dag, controlling_for = "z") +
+  theme_dag()
+```
+
+Simulated data - Equations
+
+- `x`: $N(5, 1)$
+- `x ~ z`: $\beta_1 = 4$
+- `y ~ z`: $\beta_2 = 2$
+
+```{r}
+n <- 1000
+x <- rnorm(n, 5, 1)
+z <- x * 4 + rnorm(n, 0, 2)
+y <- z * 2 + rnorm(n, 0, 2)
+df <- data.frame(x, y, z)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x`. If we ignore the confounder, we get the total effect of `x` on `y`. This includes any direct effect (`x` &rarr; `y`) and and indirect effect (`x` &rarr; `z` &rarr; `y`). In a simple linear case, the total effect should be the linear combination of these two equations. Here we have:
+
+- $z = x \times 4$
+- $y = z \times 2$
+- No direct effect
+
+So the total causal effect via `z` is $2 \times 4 = 8$. As there is no direct effect, this should be roughly what we estimate
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Model controlling for `z`. This removes the path between `x` and `y` and removes the apparent relationship. Now we only see the relationship between `z` and `y`. This is *overcontrol*: we've biased the estimate of the relationship in question by controlling for the intermediate variable
+
+```{r}
+fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
+### Simple chain (causal link)
+
+```{r}
+chain_dag <- dagify(z ~ x,
+                    y ~ x + z,
+                    coords = list(x = c(x = 1, y = 3, z = 2),
+                                  y = c(x = 1, y = 1, z = 2)),
+                    exposure = "x",
+                    outcome = "y")
+
+ggdag(chain_dag) +
+  theme_dag()
+```
+
+Independence: `x` and `y` are independent (conditioned on `z`)
+
+```{r}
+impliedConditionalIndependencies(chain_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(chain_dag) +
+  theme_dag()
+```
+
+Simulated data - Equations
+
+- `x`: $N(5, 1)$
+- `z ~ x`: $\beta_1 = 5$
+- `y ~ x + z`: $\beta_2 = -1.5, \beta_3 = 2$
+
+```{r}
+n <- 1000
+x <- rnorm(n, 10, 5)
+z <- x * 5 + rnorm(n, 0, 2)
+y <- x * -1.5 + z * 2 + rnorm(n, 0, 2)
+df <- data.frame(x, y, z)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x`. Ignoring the confounder gives us the total causal effect. Here, we have three effects at play:
+
+- $z = x \times 5$
+- $y = z \times 2$
+- No direct effect
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Model controlling for `z`. This removes the backdoor path between `x` and `y` and results in correct coefficient estimation.
+
+```{r}
+fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
+### Two variable chain (causal link)
+
+```{r}
+chain_dag <- dagify(z1 ~ x,
+                    z2 ~ z1,
+                    y ~ x + z2,
+                    coords = list(x = c(x = 1, y = 3, z1 = 1.5, z2 = 2.5),
+                                  y = c(x = 1, y = 1, z1 = 2, z2 = 1.5)),
+                    exposure = "x",
+                    outcome = "y")
+
+ggdag(chain_dag) +
+  theme_dag()
+```
+
+Independence: `x` and `y` are independent (conditioned on `z`)
+
+```{r}
+impliedConditionalIndependencies(chain_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(chain_dag) +
+  theme_dag()
+```
+
+Simulated data - Equations
+
+- `x`: $N(5, 1)$
+- `z1 ~ x`: $\beta_1 = 4$
+- `z2 ~ z1`: $\beta_2 = -2$
+- `y ~ x + z2`: $\beta_3 = -1.5, \beta_4 = 2$
+
+```{r}
+n <- 1000
+x <- rnorm(n, 10, 5)
+z1 <- x * 4 + rnorm(n, 0, 2)
+z2 <- z1 * -2 + rnorm(n, 0, 2)
+y <- x * -1.5 + z2 * 2 + rnorm(n, 0, 2)
+df <- data.frame(x, y, z1, z2)
+```
+
+```{r}
+pairs(df)
+```
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+```{r}
+fit <- lm(y ~ x + z1, df)
+summary(fit)
+```
+
+```{r}
+fit <- lm(y ~ x + z2, df)
+summary(fit)
+```
+
+```{r}
+fit <- lm(y ~ x + z1 + z2, df)
+summary(fit)
+```
+
+## Forks (common cause)
+
+These occur when a confounding variable impacts both the intervention (`x`) and the outcome (`Y`). Can result in a spurious correlations (i.e. `x` and `y` will be correlated without existing causality). 
+
+### Simple fork 
+
+This has no causal link between `x` and `y`, and a single confounder (`z`)
+
+```{r}
+fork_dag <- dagify(x ~ z,
+                   y ~ z,
+                   coords = list(x = c(x = 1, y = 3, z = 2),
+                                 y = c(x = 1, y = 1, z = 2)),
+                   exposure = "x",
+                   outcome = "y")
+
+ggdag(fork_dag) +
+  theme_dag()
+```
+
+Independence: `x` and `y` are independent (conditioned on `z`)
+
+```{r}
+impliedConditionalIndependencies(fork_dag)
+```
+
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+
+```{r}
+ggdag_adjustment_set(fork_dag) +
+  theme_dag()
+```
+
+Simulated data - Equations
+
+- `z`: $N(10, 5)$
+- `x ~ z`: $\beta_1 = 5$
+- `y ~ z`: $\beta_2 = 2$
+
+```{r}
+n <- 1000
+z <- rnorm(n, 10, 5)
+x <- z * 5 + rnorm(n, 0, 2)
+y <- z * 2 + rnorm(n, 0, 2)
+df <- data.frame(x, y, z)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x`. Ignoring the confounder results in spurious relationship between intervention and outcome
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Model controlling for `z`. This removes the backdoor path between `x` and `y` and removes the apparent relationship
+
+```{r}
+fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
+### Simple fork 2
+
+This is the same graph as before, but now we include a real relationship between `x` and `y`
+
+```{r}
+fork_dag <- dagify(x ~ z,
+                   y ~ x + z,
+                   coords = list(x = c(x = 1, y = 3, z = 2),
+                                 y = c(x = 1, y = 1, z = 2)),
+                   exposure = "x",
+                   outcome = "y")
+
+ggdag(fork_dag) +
+  theme_dag()
+```
+
+Independence: Now `x` and `y` have no conditional independence
+
+```{r}
+impliedConditionalIndependencies(fork_dag)
+```
+
+Adjustment set:
+
+```{r}
+ggdag_adjustment_set(fork_dag) +
+  theme_dag()
+```
+
+Equations
+
+- `z`: $N(10, 5)$
+- `x ~ z`: $\beta_1 = 5$
+- `y ~ x + z`: $\beta_2 = -4$, $\beta_3 = 2$
+
+```{r}
+n <- 1000
+z <- rnorm(n, 10, 5)
+x <- z * 5 + rnorm(n, 0, 5)
+y <- x * -4 + z * 2 + rnorm(n, 0, 5)
+df <- data.frame(x, y, z)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x`. Without controlling for the confounder, the coefficient relating `x` and `y` is biased (the relationship exists, but it's biased)
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Model controlling for `z`. Now we get the right value for the coefficient ($\sim4$)
+
+```{r}
+fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
+### Two variable fork 
+
+This is to illustrate Pearl's point about uncessary confounders. This graph has a backdoor path with two confounding variables (`z1` and `z2`). In order to test a causal link between `x` and `y`, we *only* need to control for one, as either will block the back door path 
+
+```{r}
+fork_dag <- dagify(x ~ z1,
+                   z2 ~ z1,
+                   y ~ z2,
+                   coords = list(x = c(x = 1, y = 3, z1 = 1.5, z2 = 2.5),
+                                 y = c(x = 1, y = 1, z1 = 2, z2 = 1.5)),
+                   exposure = "x",
+                   outcome = "y")
+
+ggdag(fork_dag) +
+  theme_dag()
+```
+
+Independence:
+
+```{r}
+impliedConditionalIndependencies(fork_dag)
+```
+
+Adjustment set: Now we get two adjustment sets, as controlling for either `z1` or `z2` removes the path
+
+```{r}
+ggdag_adjustment_set(fork_dag) +
+  theme_dag()
+```
+
+Equations
+
+- `z1`: $N(10, 5)$
+- `x ~ z1`: $\beta_1 = 5$
+- `y ~ z2`: $\beta_2 = 2$
+- `z2 ~ z1`: $beta_3 = -4$
+
+```{r}
+n <- 1000
+z1 <- rnorm(n, 10, 5)
+x <- z1 * 5 + rnorm(n, 0, 5)
+z2 <- z1 * -4 + rnorm(n, 0, 5)
+y <- z2 * 2 + rnorm(n, 0, 5)
+df <- data.frame(x, y, z1, z2)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x` (shows spurious relationship)
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Control for `z1`
+
+```{r}
+fit1 <- lm(y ~ x + z1, df)
+summary(fit1)
+```
+
+Control for `z2`
+
+```{r}
+fit2 <- lm(y ~ x + z2, df)
+summary(fit2)
+```
+
+Control for both (this works, but is more costly in regression terms)
+
+```{r}
+fit3 <- lm(y ~ x + z1 + z2, df)
+summary(fit3)
+```
+
+### Two variable fork with causal link
+
+This is to illustrate Pearl's point about uncessary confounders. This graph has a backdoor path with two confounding variables (`z1` and `z2`). In order to test a causal link between `x` and `y`, we *only* need to control for one, as either will block the back door path. This also adds a path between `x` and `y`
+
+```{r}
+fork_dag <- dagify(x ~ z1,
+                   z2 ~ z1,
+                   y ~ x + z2,
+                   coords = list(x = c(x = 1, y = 3, z1 = 1.5, z2 = 2.5),
+                                 y = c(x = 1, y = 1, z1 = 2, z2 = 1.5)),
+                   exposure = "x",
+                   outcome = "y")
+
+ggdag(fork_dag) +
+  theme_dag()
+```
+
+Independence:
+
+```{r}
+impliedConditionalIndependencies(fork_dag)
+```
+
+Adjustment set: Now we get two adjustment sets, as controlling for either `z1` or `z2` removes the path
+
+```{r}
+ggdag_adjustment_set(fork_dag) +
+  theme_dag()
+```
+
+Equations
+
+- `z1`: $N(10, 5)$
+- `x ~ z1`: $\beta_1 = 5$
+- `y ~ x + z2`: $\beta_2 = 1.5; \beta_3 = 2$
+- `z2 ~ z1`: $beta_4 = -4$
+
+```{r}
+n <- 1000
+z1 <- rnorm(n, 10, 5)
+x <- z1 * 5 + rnorm(n, 0, 5)
+z2 <- z1 * -4 + rnorm(n, 0, 5)
+y <- x * 1.5 + z2 * 2 + rnorm(n, 0, 5)
+df <- data.frame(x, y, z1, z2)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x` (biased coefficient, only weakly significant)
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Control for `z1`
+
+```{r}
+fit1 <- lm(y ~ x + z1, df)
+summary(fit1)
+```
+
+Control for `z2`
+
+```{r}
+fit2 <- lm(y ~ x + z2, df)
+summary(fit2)
+```
+
+Control for both (this works, but is more costly in regression terms)
+
+```{r}
+fit3 <- lm(y ~ x + z1 + z2, df)
+summary(fit3)
+```
+
+## Colliders
+
+This is the second type of path junction that can cause problems. Here, our two variables (`x` and `y`) are independent, but are both linked to `z`, the collider. Ths issue with this relationship is the bias that results *when we control for the collider*
+
+### Simple collider (no causal link)
+```{r}
+collider_dag <- dagify(z ~ x,
+                       z ~ y,
+                       coords = list(x = c(x = 1, y = 3, z = 2),
+                                     y = c(x = 1, y = 1, z = 2)),
+                       exposure = "x",
+                       outcome = "y")
+
+ggdag(collider_dag) +
+  theme_dag()
+```
+
+Independence: In the case, there is no conditional independence. `x` and `y` are unconditionally independent
+
+```{r}
+impliedConditionalIndependencies(collider_dag)
+```
+
+Adjustment set: now we do not need to adjust our model
+
+```{r}
+ggdag_adjustment_set(collider_dag) +
+  theme_dag()
+```
+
+Separation: This is a test for $d$-separation in a DAG. $d$-separation indicates that two variables are independent
+
+```{r}
+ggdag_dseparated(collider_dag) +
+  theme_dag()
+```
+
+We can also test for $d$-separation when we control for `z`. THis now shows that a backdoor path has been opened by the control, resulting in a spurious link between `x` and `y` (**MAYBE ADD DSEP TO CONFOUNDER EXAMPLES?**)
+
+```{r}
+ggdag_dseparated(collider_dag, controlling_for = "z") +
+  theme_dag()
+```
+
+Equations
+
+- `x`: $N(10, 2)$
+- `y`: $N(5, 1)$
+- `z ~ x + y`: $\beta_1 = 5$, $\beta_2 = 2$
+
+```{r}
+n <- 1000
+x <- rnorm(n, 10, 2)
+y <- rnorm(n, 5, 1)
+z <- 5 * x + 2 * y + rnorm(n, 0, 2)
+df <- data.frame(x, y, z)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x` - this returns the unbiased link (or lack thereof) between `x` and `y` given the collider
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Model controlling for `z`. This now results in a spurious relationship between `x` and `y`
+
+```{r}
+fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
+### Simple collider (with causal link)
+```{r}
+collider_dag <- dagify(z ~ x,
+                       z ~ y,
+                       y ~ x,
+                       coords = list(x = c(x = 1, y = 3, z = 2),
+                                     y = c(x = 1, y = 1, z = 2)),
+                       exposure = "x",
+                       outcome = "y")
+
+ggdag(collider_dag) +
+  theme_dag()
+```
+
+Independence: In the case, there is no conditional independence. `x` and `y` are unconditionally independent
+
+```{r}
+impliedConditionalIndependencies(collider_dag)
+```
+
+Adjustment set: now we do not need to adjust our model
+
+```{r}
+ggdag_adjustment_set(collider_dag) +
+  theme_dag()
+```
+
+Separation: This is a test for $d$-separation in a DAG. $d$-separation indicates that two variables are independent
+
+```{r}
+ggdag_dseparated(collider_dag) +
+  theme_dag()
+```
+
+We can also test for $d$-separation when we control for `z`. THis now shows that a backdoor path has been opened by the control, resulting in a spurious link between `x` and `y` (**MAYBE ADD DSEP TO CONFOUNDER EXAMPLES?**)
+
+```{r}
+ggdag_dseparated(collider_dag, controlling_for = "z") +
+  theme_dag()
+```
+
+Equations
+
+- `x`: $N(10, 2)$
+- `y`: $N(5, 1) + \beta_3 x$. $\beta_3 = 1.5$
+- `z ~ x + y`: $\beta_1 = 5$, $\beta_2 = 2$
+
+```{r}
+n <- 1000
+x <- rnorm(n, 10, 2)
+y <- rnorm(n, 5, 1) + 1.5 * x
+z <- 5 * x + 2 * y + rnorm(n, 0, 2)
+df <- data.frame(x, y, z)
+```
+
+```{r}
+pairs(df)
+```
+
+Model of `y ~ x` - this returns the unbiased coefficient between `x` and `y` given the collider
+
+```{r}
+fit <- lm(y ~ x, df)
+summary(fit)
+```
+
+Model controlling for `z`. This now results in a biased coefficient between `x` and `y`
+
+```{r}
+fit <- lm(y ~ x + z, df)
+summary(fit)
+```
+
