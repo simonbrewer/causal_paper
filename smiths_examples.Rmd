@@ -70,7 +70,7 @@ Independence: `X` and `Y` are independent (conditioned on `Z`)
 impliedConditionalIndependencies(chain_dag)
 ```
 
-Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome
+Adjustment set: shows what adjustment is necessary to obtain the causal link between input and outcome. Important note here - the adjustment set says to ignore `z` in this case. If we, this is a 'overcontrol' - we'll remove or bias the *total* causal link between `x` and `y`
 
 ```{r}
 ggdag_adjustment_set(chain_dag) +
@@ -83,6 +83,8 @@ Separation:
 ggdag_dseparated(chain_dag) +
   theme_dag()
 ```
+
+If we control for `z` this artificially separates the exposure and outcome: 
 
 ```{r}
 ggdag_dseparated(chain_dag, controlling_for = "Z")
