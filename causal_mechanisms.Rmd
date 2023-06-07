@@ -168,15 +168,16 @@ pairs(df)
 Model of `y ~ x`. Ignoring the confounder gives us the total causal effect. Here, we have three effects at play:
 
 - $z = x \times 5$
-- $y = z \times 2$
-- No direct effect
+- $y = z \times 2 + x \times -1.5$
+
+Now the indirect effect via `z` is $5 \times 2 = 10$, and the direct effect is $-1.5$, giving us a total effect of $10 - 1.5 = 8.5$. Let's see what the model says:
 
 ```{r}
 fit <- lm(y ~ x, df)
 summary(fit)
 ```
 
-Model controlling for `z`. This removes the backdoor path between `x` and `y` and results in correct coefficient estimation.
+Model controlling for `z`. By controlling for `z`, we no longer can observe the total effect of `x` (overcontrol). However, this does isolate the 2 single paths `x` &rarr; `y` and `z` &rarr; `y` correctly.
 
 ```{r}
 fit <- lm(y ~ x + z, df)
