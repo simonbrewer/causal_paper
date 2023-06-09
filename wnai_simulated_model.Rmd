@@ -21,6 +21,7 @@ library(dagitty)
 library(ggdag)
 library(latex2exp)  # Easily convert LaTeX into arcane plotmath expressions
 library(ggtext)     # Use markdown in ggplot labels
+library(mediation)  # Mediation analysis
 
 # Create a cleaner serifed theme to use throughout
 theme_do_calc <- function() {
@@ -41,15 +42,13 @@ update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman",
 wnai_dag <- dagify(density ~ temp + precip,
                    agri  ~ density + temp + precip,
                    plant ~ temp + precip + density + agri,
-                   animal ~ temp + precip + density + plant + language,
+                   animal ~ temp + precip + density + plant,
                    coords = list(x = c(temp = 1, precip = 1, 
                                        density = 2, plant = 2.5,
-                                       agri = 3, language = 3.5,
-                                       animal = 4),
+                                       agri = 3, animal = 4),
                                  y = c(temp = 2, precip = 3, 
                                        density = 1, plant = 4,
-                                       agri = 1, language = 4,
-                                       animal = 2.5)))
+                                       agri = 1, animal = 2.5)))
 
 ggdag(wnai_dag) +
   theme_dag()
@@ -58,7 +57,7 @@ ggdag(wnai_dag) +
 ## Simulated data
 
 ```{r}
-n = 10000
+n = 1000
 precip = rlnorm(n, log(20), log(2))
 precip = rnorm(n, 200, 20)
 temp = rnorm(n, 0, 1)
@@ -74,10 +73,10 @@ plant = 1000 + (2 * precip) + (75 * temp) + b_da * density - 0.05 * agri  + rnor
 
 b_dp = -0.5 # Coefficient for plant ~ density
 ## Plants with no animal link (test for spurious correlations)
-animal = 1000 + 4 * precip + 10 * temp + b_dp * density+ 1 * lang + rnorm(n, 0, 50)
+animal = 1000 + 4 * precip + 10 * temp + b_dp * density + rnorm(n, 0, 50)
 
 ## Plants with animal link
-animal = 1000 + 4 * precip + 10 * temp + b_dp * density + 0.25 * plant + 1 * lang + rnorm(n, 0, 50)
+animal = 1000 + 4 * precip + 10 * temp + b_dp * density + 0.25 * plant + rnorm(n, 0, 50)
 
 ```
 
@@ -95,7 +94,7 @@ pairs(df)
 Quick vif check
 
 ```{r}
-fit <- lm(animal ~ density + precip + temp + plant + agri + lang, df)
+fit <- lm(animal ~ density + precip + temp + plant + agri, df)
 car::vif(fit)
 ```
 
@@ -132,57 +131,94 @@ summary(fit)
 
 `density` coefficient: `r round(coef(fit)['density'], 2)`
 
-### 1b
+### 1b: Causal model
 
-Include controls for backdoor confounders *and* collider (`animal`)
+Include controls for backdoor confounders. This should estimate the full causal effect of `density` on `plant`
 
 ```{r}
-fit <- lm(plant ~ density + precip + temp + agri + animal, df)
+fit <- lm(plant ~ density + precip + temp, df)
 summary(fit)
 ```
 
 `density` coefficient: `r round(coef(fit)['density'], 2)`
 
-### 1c
+### 1c: Mediation
 
-Final model (ignore colliders)
-
-```{r}
-fit <- lm(plant ~ density + precip + temp + agri, df)
-summary(fit)
-```
-
-`density` coefficient: `r round(coef(fit)['density'], 2)`
-
-### 1d
-
-Example adding independent variable (it's not correlated), but as it's independent, it does not bias the estimate
+Mediation path is through agriculture
 
 ```{r}
-fit <- lm(plant ~ density + precip + temp + agri + lang, df)
-summary(fit)
+ggdag_paths(wnai_dag, from = 'density', to = 'plant', 
+            adjust_for = c('temp', 'precip')) +
+  theme_dag()
 ```
 
-`density` coefficient: `r round(coef(fit)['density'], 2)`
+#### Step 1c-1: Total effect
 
-### tl;dr
+This is the equivalent to the total causal effect. As this is a chain (`density` &rarr; `agri` &rarr; `plant`), we do *not* need to control for the mediator. We need to keep the controls for the backdoor paths through `temp` and `precip`
 
-Testing the causal link between plant richness and population density requires
+```{r}
+fit1 = lm(plant ~ density + temp + precip, df)
+summary(fit1)
+```
 
-- Closing the backdoor paths (precip and temp)
-- Adding `agri` as a confounder
-- Not adding `animal` as a collidor
+The total effect is `r round(coef(fit1)['density'], 2)`. 
 
-## Model 2: Animal
+#### Step 1c-2: The effect of the IV on the mediator
+
+Next we need to quantify the effect of the independent variable (`density`) on the mediator (`agri`). Again, we need to control for the backdoor paths through `precip` and `temp`
+
+```{r}
+ggdag_adjustment_set(wnai_dag, 
+                     exposure = 'agri', 
+                     outcome = 'plant') +
+  theme_dag()
+```
+
+```{r}
+fit2 = lm(agri ~ density + temp + precip, df)
+summary(fit2)
+```
+
+And we get a result of `r round(coef(fit2)['density'],2)`.
+
+#### Step 1c-3: The effect of the mediator on the dependent variable
+
+The third step confirms that the mediator affects the dependent variable while *controlling* for the independent variable (and the backdoors!). This means, that for a mediation to take place, the mediator must explain more or other parts of the variance in the dependent variable than the independent variable.
+
+```{r}
+fit3 = lm(plant ~ density + agri + temp + precip, df)
+summary(fit3)
+```
+
+#### Step 1c-4: Causal Mediation Analysis
+
+```{r}
+res = mediation::mediate(model.m = fit2, 
+                         model.y = fit3, 
+                         treat = 'density',
+                         mediator = 'agri',
+                         boot = TRUE)
+```
+
+```{r}
+summary(res)
+```
+
+
+- `ACME` stands for average causal mediation effects. This is the indirect effect of the IV (sepal length) on the DV (likelihood of pollination) that goes through the mediator (attractiveness to bee). Note that it estimated this effect to be `r round(res$d0, 3)`. This is the effect of the treatment on the mediator (`r round(coef(fit2)['density'], 2)`) from step 2 times the mediator's effect on the outcome from step 3 (`r round(coef(fit3)['agri'], 2)`)
+- `ADE` stands for average direct effects. This is the direct effect of the treatment on the outcome. This is the same as the `sl` coefficient from step 3
+- `Total Effect` stands for the total effect (direct + indirect), which was calculated in step #1. We can also get it by simply adding the ACME (`r round(res$d0, 3)`) and the ADE (`r round(res$z0, 3)`) to receive the total effect of `r round(res$tau.coef, 3)`. 
+- `Prop. Mediated` describes the proportion of the effect of the IV on the DV that goes through the mediator. It’s calculated by dividing the ACME (`r round(res$d0, 3)`) by the total effect (`r round(res$tau.coef, 3)`) to receive a value of roughly `r round(res$n0, 3)`. This supports the results above that indicate there is no direct effect. 
+
+```{r}
+plot(res)
+```
+
+## Model 2: Animals
 
 Causal link to be tested: `animal ~ density`. 'Real' value is `r round(b_da, 2)`.
 
-Let's check the adjustment set for this. There are the same two forks (via `precip` and `temp`), which create backdoor paths that need to be controlled for, There are *two* chains now
-
-- `density` &rarr; `plant` &rarr; `animal` 
-- `density` &rarr; `agri` &rarr; `animal` 
-
-And we'll need to control for these two intermediate variables
+Let's check the adjustment set for this. There are two forks (via `precip` and `temp`), which create backdoor paths that need to be controlled for. In addition, `agri` forms a chain through to plant richness and will need to be controlled for
 
 ```{r}
 ggdag_adjustment_set(wnai_dag, 
@@ -192,12 +228,13 @@ ggdag_adjustment_set(wnai_dag,
   theme_dag()
 ```
 
-While there are the same set of colliders, none are children of `animal` so we don't need to worry about adjusting for these
+There is also a potential collider (`animal`), which should be avoided. As long as we leave this alone, we don't introduce any correlation
 
 ```{r}
 ggdag_collider(wnai_dag) +
   theme_dag()
 ```
+
 
 ### 2a: Naive model
 
@@ -210,9 +247,9 @@ summary(fit)
 
 `density` coefficient: `r round(coef(fit)['density'], 2)`
 
-### 2b
+### 2b: Causal model
 
-Include controls for backdoor confounders
+Include controls for backdoor confounders. This should estimate the full causal effect of `density` on `animal`. Note that we should adjust for plant (collider) or `agri` (chain / overcontrol)
 
 ```{r}
 fit <- lm(animal ~ density + precip + temp, df)
@@ -221,39 +258,25 @@ summary(fit)
 
 `density` coefficient: `r round(coef(fit)['density'], 2)`
 
-### 2c
+### 2c: Mediation
 
-Final model (all possible confounders (except agriculture as there is no path?)
-
-```{r}
-fit <- lm(animal ~ density + precip + temp + plant + lang + agri, df)
-summary(fit)
-```
-
-`density` coefficient: `r round(coef(fit)['density'], 2)`
-
-### tl;dr
-
-Testing the causal link between animal richness and population density requires
-
-- Closing the backdoor paths (precip and temp)
-- Adding `plant` as a confounder
-- Not including (or optionally including `agri`). Although this is connected to `animal` (see d-sep diagram), this path is closed by controlling for `plant`
+Mediation path is through `agri` *and* `plant`
 
 ```{r}
-ggdag_dseparated(wnai_dag, from = "agri", to = "animal")
+ggdag_paths(wnai_dag, from = 'density', to = 'animal', 
+            adjust_for = c('temp', 'precip')) +
+  theme_dag()
 ```
 
-To illustrate, here are the open paths between `density` and `animal` without a control on `plant` (but with controls on the backdoor paths). Note that the path through `agri` remains open. 
+#### Step 2c-1: Total effect
+
+This is the equivalent to the total causal effect. As this is a chain (`density` &rarr; `agri` &rarr; `plant`), we do *not* need to control for the mediator. We need to keep the controls for the backdoor paths through `temp` and `precip`
 
 ```{r}
-ggdag_paths(wnai_dag, from = "density", to = "animal", 
-            adjust_for = c("temp", "precip"))
+fit1 = lm(animal ~ density + temp + precip, df)
+summary(fit1)
 ```
 
-Here is the same with a control added for `plant`, which only leaves the direct path:
+The total effect is `r round(coef(fit1)['density'], 2)`. 
 
-```{r}
-ggdag_paths(wnai_dag, from = "density", to = "animal", 
-            adjust_for = c("temp", "precip", "plant"))
-```
+
