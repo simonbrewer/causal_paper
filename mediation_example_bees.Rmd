@@ -1,0 +1,376 @@
+---
+title: "Causal Mediation Example 2"
+author: "Simon Brewer"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+set.seed(1234)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries and whatnot
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+# library(broom)
+library(patchwork)
+library(scales)
+library(dagitty)
+library(ggdag)
+library(latex2exp)  # Easily convert LaTeX into arcane plotmath expressions
+library(ggtext)     # Use markdown in ggplot labels
+
+# Create a cleaner serifed theme to use throughout
+theme_do_calc <- function() {
+  theme_dag(base_family = "Times New Roman") +
+    theme(plot.title = element_text(size = rel(1.5)),
+          plot.subtitle = element_markdown())
+}
+
+# Make all geom_dag_text() layers use these settings automatically
+update_geom_defaults(ggdag:::GeomDagText, list(family = "Times New Roman", 
+                                               fontface = "bold",
+                                               color = "black"))
+```
+
+## Example 1
+
+Example taken from https://towardsdatascience.com/doing-and-reporting-your-first-mediation-analysis-in-r-2fe423b92171
+
+This has no *direct* link between `x` and `y`
+
+### Data
+
+Dataset is a mix of the iris dataset and simulated data. We use:
+
+- `Sepal.Length` (`sl`) as the independent variable (exposure)
+- `Attractiveness` (`attr`) as the mediator
+- `Pollination` (`poll`) as the outcome
+
+We'll ignore the unknown / errors terms here
+
+### DAG
+
+```{r}
+bees_dag <- dagify(attr ~ sl,
+                   poll ~ sl + attr,
+                   coords = list(x = c(sl = 1, poll = 3, attr = 2),
+                                 y = c(sl = 1, poll = 1, attr = 2)),
+                   exposure = "sl",
+                   outcome = "poll")
+
+ggdag(bees_dag) +
+  theme_dag()
+```
+
+Check for independence
+
+```{r}
+impliedConditionalIndependencies(bees_dag)
+```
+
+Adjustment set
+
+```{r}
+ggdag_adjustment_set(bees_dag) +
+  theme_dag()
+```
+
+### Data 
+
+```{r}
+data(iris)
+df = data.frame(sl = iris$Sepal.Length)
+```
+
+Set mediator coefficient (signal / noise)
+
+```{r}
+bm = 0.35
+nm = 1 - bm
+```
+
+Now add the mediator. It's value will be `r bm` of `sl` and `r nm` noise (default is 35/65)
+
+```{r}
+df$random1 = runif(nrow(df),
+                   min = min(df$sl),
+                   max = max(df$sl))
+df$attr = df$sl * bm + df$random1 * nm
+```
+
+
+```{r}
+bo = 0.35
+no = 1 - bo
+```
+
+Next add the outcome. "likelihood to be pollinated by a bee." This variable will be named dv and consists of two parts again. It's value will be `r bo` of the mediator (`attr`) and `r no` noise (default is 35/65)
+
+```{r}
+df$random2 = runif(nrow(df),
+                   min = min(df$sl),
+                   max = max(df$sl))
+df$poll = df$attr * bo + df$random2 * no
+```
+
+```{r}
+plot(df$sl, df$attr)
+plot(df$sl, df$poll)
+plot(df$attr, df$poll)
+```
+
+### Mediation analysis
+
+We will provide statistical support for the mediation with the help of the mediation analysis in four simple steps.
+
+- First, we will test the total effect. Here we are looking if any change in sepal length impacts the DV at all. More on this later.
+- Second, we will test the effect of the independent variable on the mediator. A significant effect of sepal length onto the mediator is an absolute prerequisite for mediation being possible.
+- Third, we will simultaneously test the mediator's and the independent variable’s effect on the dependent variable. This is when the rubber hits the road and it all comes together.
+- Fourth and lastly, we will estimate various quantities for causal mediation analysis, meaning that we will compare the direct to the indirect effect, giving us more insight into what is going on in the data.
+
+#### Step 1: Total effect
+
+This is the equivalent to the total causal effect. As this is a chain (`sl` &rarr; `attr` &rarr; `poll`), we do *not* need to control for the mediator
+
+```{r}
+fit1 = lm(poll ~ sl, df)
+summary(fit1)
+```
+
+The total effect is `r round(coef(fit1)['sl'], 2)`. This should be close to the expected value of `r bm` times `r bo` = `r bm * bo` (at least within coefficient errors). The significance of this effect will depend largely on the noise added.
+
+#### Step #2: The effect of the IV onto the mediator
+
+To establish any mediation, the independent variable (iv, “sepal length” in our case) must significantly affect the mediator. In this step, we simply model that effect (should be close to `r bm`)
+
+```{r}
+fit2 = lm(attr ~ sl, df)
+summary(fit2)
+```
+
+And we get a results of `r round(coef(fit2)['sl'],2)`.
+
+#### Step #3: The effect of the mediator on the dependent variable
+
+The third step confirms that the mediator affects the dependent variable while *controlling* for the independent variable. This means, that for a mediation to take place, the mediator must explain more or other parts of the variance in the dependent variable than the independent variable.
+
+```{r}
+fit3 = lm(poll ~ sl + attr, df)
+summary(fit3)
+```
+
+The coefficient for the mediator (`attr` &rarr; `poll`) is `r round(coef(fit3)['attr'], 2)`, which should be close to the known effect of `r bo` (at least within CIs). As the direct effect in this model (`sl` &rarr; `poll`) is n.s., we can state that there is no direct effect; this is *complete mediation*. This means that all of the causal effect of `sl` goes through the mediator. (We'll repeat this below with partial mediation). 
+
+#### Step #4: Causal Mediation Analysis
+
+```{r}
+library(mediation)
+```
+
+```{r}
+fit2 = lm(attr ~ sl, df)
+fit3 = lm(poll ~ attr + sl, df)
+res = mediation::mediate(model.m = fit2, 
+                         model.y = fit3, 
+                         treat = 'sl',
+                         mediator = 'attr',
+                         boot = TRUE)
+```
+
+```{r}
+summary(res)
+```
+
+
+- `ACME` stands for average causal mediation effects. This is the indirect effect of the IV (sepal length) on the DV (likelihood of pollination) that goes through the mediator (attractiveness to bee). Note that it estimated this effect to be `r round(res$d0, 3)`. This is the effect of the treatment on the mediator (`r round(coef(fit2)['sl'], 2)`) from step 2 times the mediator's effect on the outcome from step 3 (`r round(coef(fit3)['attr'], 2)`)
+- `ADE` stands for average direct effects. This is the direct effect of the treatment on the outcome. This is the same as the `sl` coefficient from step 3
+- `Total Effect` stands for the total effect (direct + indirect), which was calculated in step #1. We can also get it by simply adding the ACME (`r round(res$d0, 3)`) and the ADE (`r round(res$z0, 3)`) to receive the total effect of `r round(res$tau.coef, 3)`. 
+- `Prop. Mediated` describes the proportion of the effect of the IV on the DV that goes through the mediator. It’s calculated by dividing the ACME (`r round(res$d0, 3)`) by the total effect (`r round(res$tau.coef, 3)`) to receive a value of $\sim 1$. This supports the results above that indicate there is no direct effect. 
+
+```{r}
+plot(res)
+```
+
+### **psych** package
+
+```{r message=FALSE, warning=FALSE}
+library(psych)
+res = psych::mediate(poll ~ sl + (attr), data = df,
+                     plot = TRUE)
+```
+
+## Example 2
+
+Modification of the above example to include a direct effect
+
+### Data
+
+Dataset is a mix of the iris dataset and simulated data. We use:
+
+- `Sepal.Length` (`sl`) as the independent variable (exposure)
+- `Attractiveness` (`attr`) as the mediator
+- `Pollination` (`poll`) as the outcome
+
+We'll ignore the unknown / errors terms here
+
+### DAG
+
+```{r}
+bees_dag <- dagify(attr ~ sl,
+                   poll ~ sl + attr,
+                   coords = list(x = c(sl = 1, poll = 3, attr = 2),
+                                 y = c(sl = 1, poll = 1, attr = 2)),
+                   exposure = "sl",
+                   outcome = "poll")
+
+ggdag(bees_dag) +
+  theme_dag()
+```
+
+Check for independence
+
+```{r}
+impliedConditionalIndependencies(bees_dag)
+```
+
+Adjustment set
+
+```{r}
+ggdag_adjustment_set(bees_dag) +
+  theme_dag()
+```
+
+### Data 
+
+```{r}
+data(iris)
+df = data.frame(sl = iris$Sepal.Length)
+```
+
+Set mediator coefficient (signal / noise)
+
+```{r}
+bm = 0.65
+nm = 1 - bm
+```
+
+Now add the mediator. It's value will be `r bm` of `sl` and `r nm` noise (default is 35/65)
+
+```{r}
+df$random1 = runif(nrow(df),
+                   min = min(df$sl),
+                   max = max(df$sl))
+df$attr = df$sl * bm + df$random1 * nm
+```
+
+
+```{r}
+bo_sl = 0.35
+bo_at = 0.35
+no = 1 - (bo_sl + bo_at)
+```
+
+**CHANGE HERE**
+
+Next add the outcome. "likelihood to be pollinated by a bee." This variable will be named dv and consists of three parts. It's value will be `r bo_sl` of the independent variable, plus `r bo_at` of the mediator (`attr`) and `r no` noise
+
+```{r}
+df$random2 = runif(nrow(df),
+                   min = min(df$sl),
+                   max = max(df$sl))
+df$poll = df$sl * bo_sl + df$attr * bo_at + df$random2 * no
+```
+
+```{r}
+plot(df$sl, df$attr)
+plot(df$sl, df$poll)
+plot(df$attr, df$poll)
+```
+
+### Mediation analysis
+
+We will provide statistical support for the mediation with the help of the mediation analysis in four simple steps.
+
+- First, we will test the total effect. Here we are looking if any change in sepal length impacts the DV at all. More on this later.
+- Second, we will test the effect of the independent variable on the mediator. A significant effect of sepal length onto the mediator is an absolute prerequisite for mediation being possible.
+- Third, we will simultaneously test the mediator's and the independent variable’s effect on the dependent variable. This is when the rubber hits the road and it all comes together.
+- Fourth and lastly, we will estimate various quantities for causal mediation analysis, meaning that we will compare the direct to the indirect effect, giving us more insight into what is going on in the data.
+
+#### Step 1: Total effect
+
+This is the equivalent to the total causal effect. As this is a chain (`sl` &rarr; `attr` &rarr; `poll`), we do *not* need to control for the mediator
+
+```{r}
+fit1 = lm(poll ~ sl, df)
+summary(fit1)
+```
+
+The total effect is `r round(coef(fit1)['sl'], 2)`. This should be close to the expected value of `r bm` times `r bo_at` plus `r bo_sl` = `r bm * bo_at + bo_sl` (at least within coefficient errors). The significance of this effect will depend largely on the noise added.
+
+#### Step #2: The effect of the IV onto the mediator
+
+To establish any mediation, the independent variable (iv, “sepal length” in our case) must significantly affect the mediator. In this step, we simply model that effect (should be close to `r bm`)
+
+```{r}
+fit2 = lm(attr ~ sl, df)
+summary(fit2)
+```
+
+And we get a results of `r round(coef(fit2)['sl'],2)`.
+
+#### Step #3: The effect of the mediator on the dependent variable
+
+The third step confirms that the mediator affects the dependent variable while *controlling* for the independent variable. This means, that for a mediation to take place, the mediator must explain more or other parts of the variance in the dependent variable than the independent variable.
+
+```{r}
+fit3 = lm(poll ~ sl + attr, df)
+summary(fit3)
+```
+
+The coefficient for the mediator (`attr` &rarr; `poll`) is `r round(coef(fit3)['attr'], 2)`, which should be close to the known effect of `r bo_at` (at least within CIs). Note that the coefficient for `sl` is significant in this model, indicating that there *is* a direct effect
+
+#### Step #4: Causal Mediation Analysis
+
+```{r}
+library(mediation)
+```
+
+```{r}
+fit2 = lm(attr ~ sl, df)
+fit3 = lm(poll ~ attr + sl, df)
+res = mediation::mediate(model.m = fit2, 
+                         model.y = fit3, 
+                         treat = 'sl',
+                         mediator = 'attr',
+                         boot = TRUE)
+```
+
+```{r}
+summary(res)
+```
+
+
+- `ACME` stands for average causal mediation effects. This is the indirect effect of the IV (sepal length) on the DV (likelihood of pollination) that goes through the mediator (attractiveness to bee). Note that it estimated this effect to be `r round(res$d0, 3)`. This is the effect of the treatment on the mediator (`r round(coef(fit2)['sl'], 2)`) from step 2 times the mediator's effect on the outcome from step 3 (`r round(coef(fit3)['attr'], 2)`)
+- `ADE` stands for average direct effects. This is the direct effect of the treatment on the outcome. This is the same as the `sl` coefficient from step 3
+- `Total Effect` stands for the total effect (direct + indirect), which was calculated in step #1. We can also get it by simply adding the ACME (`r round(res$d0, 3)`) and the ADE (`r round(res$z0, 3)`) to receive the total effect of `r round(res$tau.coef, 3)`. 
+- `Prop. Mediated` describes the proportion of the effect of the IV on the DV that goes through the mediator. It’s calculated by dividing the ACME (`r round(res$d0, 3)`) by the total effect (`r round(res$tau.coef, 3)`) to receive a value of $\sim 1$. This supports the results above that indicate there is no direct effect. 
+
+```{r}
+plot(res)
+```
+
+### **psych** package
+
+```{r message=FALSE, warning=FALSE}
+library(psych)
+res = psych::mediate(poll ~ sl + (attr), data = df,
+                     plot = TRUE)
+```
+
+
+
+
+
