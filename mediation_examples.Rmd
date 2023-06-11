@@ -283,3 +283,134 @@ Expected ADE is `r b_xy`
 ```{r}
 ACME + ADE
 ```
+
+## Example 3: Two stage mediation
+
+This represents an indirect path from intervention to outcome via two dependent mediators (`x` &rarr; `z1` &rarr; `z2` &rarr; `y`)
+
+### Simulated data
+
+- $x \sim N(5, 1)$
+- $z_1 = \beta_{xz_1} \times x + e$
+- $z_2 = \beta_{z_1z_2} \times z_1 + e$
+- $y = \beta_{xy} \times x + \beta_{z_2y} \times z_2 + e$
+
+```{r}
+n <- 1000
+
+b_xz1 = 10
+b_z1z2 = -5
+b_xy = 2.5
+b_z2y = -0.5
+
+x <- rnorm(n, 5, 1)
+z1 <- x * b_xz1 + rnorm(n, 0, 5)
+z2 <- z1 * b_z1z2 + rnorm(n, 0, 5)
+y <- x * b_xy + z2 * b_z2y + rnorm(n, 0, 5)
+df <- data.frame(x, y, z1, z2)
+```
+
+```{r}
+pairs(df)
+```
+
+### DAG
+
+```{r}
+model <- "
+  z1 ~ b_xz1 * x
+  z2 ~ b_z1z2 * z1
+  y ~ b_xy * x + b_z2y * z2
+  ind_eff := b_xz1 * b_z1z2 * b_z2y
+  total := b_xy + (b_xz1 * b_z1z2 * b_z2y)
+"
+semfit <- lavaan::sem(model = model, data = df)
+lavaanPlot(model = semfit)
+```
+
+### Mediation
+
+#### Step 1: Total effect
+
+```{r}
+fit1 <- lm(y ~ x, df)
+summary(fit1)
+```
+
+#### Step 2: Effect of IV on mediator (`z1`)
+
+- `z1`
+
+```{r}
+fit2 <- lm(z1 ~ x, df)
+summary(fit2)
+```
+
+The expected value for this is `r b_xz1`, and we obtain a value of `r round(coef(fit2)['x'], 2)`. 
+
+#### Step 3: Effect of mediator (`z1`) on mediator (`z2`)
+
+```{r}
+fit3 <- lm(z2 ~ z1, df)
+summary(fit3)
+```
+
+The expected value for this is `r b_z1z2`, and we obtain a value of `r round(coef(fit3)['z1'], 2)`. 
+
+#### Step 4: Effect of mediator on DV
+
+To get the effect of  `z2` on `y` we need to account for `x` as it is a fork or common cause (not shown here)
+
+```{r}
+fit4 <- lm(y ~ x + z2, df)
+summary(fit4)
+```
+
+The mediator (`z2` &rarr; `y`) is `r round(coef(fit4)['z2'], 2)`, which should be close to the known effect of `r b_z2y` (at least within CIs). 
+
+The direct effect in this model (`x` &rarr; `y`) is `r round(coef(fit4)['x'], 2)`. As this is significant, this is *partial mediation*.
+
+#### Step 5: Estimate mediation effects
+
+```{r}
+summary(semfit)
+```
+
+##### ACME 
+
+`ACME` (average causal mediation effect). The indirect effect of the independent variable / treatment (`x`) on the outcome (`y`), in other words, the effect that passes through the two mediators `z1` and `z1`
+
+This (I think) is the product of the three individual mediator effects (`x` &rarr; `z1` &rarr; `z2` &rarr; `y`)
+
+\[
+  ACME = \beta_{xz_1} \times \beta_{z_1z_2} \times \beta_{z_2y}
+  \]
+
+```{r}
+ACME = coef(fit2)['x'] * coef(fit3)['z1'] * coef(fit4)['z2']
+ACME
+```
+
+Expected ACME is
+```{r}
+ACMEe = b_xz1 * b_z1z2 * b_z2y
+ACMEe
+```
+
+##### ADE
+
+`ADE` stands for average direct effects. This is the direct effect of the treatment on the outcome, and is `x` coefficient from step 3
+
+```{r}
+ADE = coef(fit4)['x']
+ADE
+```
+
+##### Total effect
+
+`Total Effect` stands for the total effect (direct + indirect). This is the same  as the coefficient from model 1 (`r round(coef(fit1)['x'], 2)`). We can also get it by simply adding the ACME and the ADE
+
+```{r}
+ACME + ADE
+```
+
