@@ -573,3 +573,218 @@ ADE
 ```{r}
 ACME + ADE
 ```
+
+## Example 5: Full WNAI framework
+
+This represents an indirect path from intervention to outcome via two dependent mediators (`x` &rarr; `z1` &rarr; `z2` &rarr; `y`), and a second mediation path (`x` &rarr; `z2` &rarr; `y`). This also includes `ut` and `up` representing the exogenous factors (temperature and precipitation)
+
+### Simulated data
+
+- $u_t \sim N(15, 2.5)$: Temperature
+- $u_p \sim N(500, 25)$: Precipitation
+- $x = \beta_{u_tx} u_t + \beta_{u_px} u_p + N(5, 1)$: Density
+- $z_1 = \beta_{xz_1} \times x + e$: Agriculture
+- $z_2 = \beta_{xz_2} \times x + \beta_{z_1z_2} z_1 + e$: Plants
+- $y = \beta_{xy} \times x + \beta_{z_2y} \times z_2 + e$: Animals
+
+```{r}
+n <- 1000
+
+b_utx = 1.8
+b_upx = -7.25
+b_utz1 = 2.3
+b_upz1 = -0.9
+b_xz1 = 2
+b_utz2 = -1.35
+b_upz2 = 2.4
+b_xz2 = -3.5
+b_z1z2 = -1.5
+b_uty = 0.35
+b_upy = -0.75
+b_xy = 2.5
+b_z2y = -0.5
+
+ut <- rnorm(n, 15, 2.5)
+up <- rnorm(n, 10, 0.5)
+x <- ut * b_utx + up * b_upx + rnorm(n, 1.5, 1)
+z1 <- b_utz1 * ut + b_upz1 * up + x * b_xz1 + rnorm(n, 0, 5)
+z2 <- b_utz2 * ut + b_upz2 * up + x * b_xz2 + z1 * b_z1z2 + rnorm(n, 0, 5)
+y <- b_uty * ut + b_upy * up + x * b_xy + z2 * b_z2y + rnorm(n, 0, 5)
+df <- data.frame(ut, up, x, y, z1, z2)
+```
+
+```{r}
+pairs(df)
+```
+
+### DAG
+
+```{r}
+model <- "
+  x ~ b_utx * ut + b_upx * up
+  z1 ~ b_utz1 * ut + b_upz1 * up + b_xz1 * x
+  z2 ~ b_utz2 * ut + b_upz2 * up + b_xz2 * x + b_z1z2 * z1
+  y ~ b_uty * ut + b_upy * up + b_xy * x + b_z2y * z2
+  ind_eff := (b_xz1 * b_z1z2 * b_z2y) + (b_xz2 * b_z2y)
+  total := b_xy + ((b_xz1 * b_z1z2 * b_z2y) + (b_xz2 * b_z2y))
+"
+semfit <- lavaan::sem(model = model, data = df)
+lavaanPlot(model = semfit)
+```
+
+
+### Adjustment sets
+
+Using **ggdag** to find adjustment sets...
+
+```{r message=TRUE, warning=FALSE}
+library(ggdag)
+wnai_dag <- dagify(x ~ ut + up,
+                   z1  ~ x + ut + up,
+                   z2 ~ ut + up + x + z1,
+                   y ~ ut + up + x + z2,
+                   coords = list(x = c(ut = 1, up = 1, 
+                                       x = 2, z2 = 2.5,
+                                       z1 = 3,
+                                       y = 4),
+                                 y = c(ut = 2, up = 3, 
+                                       x = 1, z2 = 4,
+                                       z1 = 1,
+                                       y = 2.5)))
+
+ggdag(wnai_dag) +
+  theme_dag()
+```
+
+```{r}
+ggdag_adjustment_set(wnai_dag,
+                     exposure = "x",
+                     outcome = "y") +
+  theme_dag()
+```
+
+```{r}
+ggdag_adjustment_set(wnai_dag,
+                     exposure = "x",
+                     outcome = "z1") +
+  theme_dag()
+```
+
+```{r}
+ggdag_adjustment_set(wnai_dag,
+                     exposure = "x",
+                     outcome = "z2") +
+  theme_dag()
+```
+
+```{r}
+ggdag_adjustment_set(wnai_dag,
+                     exposure = "z2",
+                     outcome = "y") +
+  theme_dag()
+```
+
+### Mediation
+
+#### Step 1: Total effect
+
+Need to adjust for backdoor paths
+
+```{r}
+fit1 <- lm(y ~ x + ut + up, df)
+summary(fit1)
+```
+
+#### Step 2: Effect of IV on mediators
+
+- `z1`
+
+```{r}
+fit2a <- lm(z1 ~ x + ut + up, df)
+summary(fit2a)
+```
+
+The expected value for this is `r b_xz1`, and we obtain a value of `r round(coef(fit2a)['x'], 2)`. 
+
+- `z2`
+
+```{r}
+fit2b <- lm(z2 ~ x + ut + up + z1, df)
+summary(fit2b)
+```
+
+The expected value for the coefficient `x` is `r b_xz2`, and we obtain a value of `r round(coef(fit2b)['x'], 2)`. 
+
+The expected value for the coefficient `z1` is `r b_z1z2`, and we obtain a value of `r round(coef(fit2b)['z1'], 2)`. 
+
+#### Step 3: Effect of mediator (`z1`) on mediator (`z2`)
+
+Not sure if we need this, but let's grab it anyway. Might need a control for `x`, which makes it the same as 2b
+
+```{r}
+fit3 <- lm(z2 ~ x + ut + up + z1, df)
+summary(fit3)
+```
+
+The expected value for this is `r b_z1z2`, and we obtain a value of `r round(coef(fit3)['z1'], 2)`. 
+
+#### Step 4: Effect of mediator on DV
+
+To get the effect of  `z2` on `y` we need to account for `x` as it is a fork or common cause (not shown here). Note that unlike the previous example, we have to control at `x`. If we control at `z1`, this leaves an open backdoor through `z`. Controlling for `z1` and `x` will bias the the effect of `z2`
+
+```{r}
+fit4 <- lm(y ~ x + ut + up + z2, df)
+summary(fit4)
+```
+
+The mediator (`z1` &rarr; `y`) is `r round(coef(fit4)['z1'], 2)`, which should be close to the known effect of `r b_z1y` (at least within CIs). 
+
+The mediator (`z2` &rarr; `y`) is `r round(coef(fit4)['z2'], 2)`, which should be close to the known effect of `r b_z2y` (at least within CIs). 
+
+The direct effect in this model (`x` &rarr; `y`) is `r round(coef(fit4)['x'], 2)`. As this is significant, this is *partial mediation*.
+
+#### Step 5: Estimate mediation effects
+
+```{r}
+summary(semfit)
+```
+
+##### ACME 
+
+`ACME` (average causal mediation effect). The indirect effect of the independent variable / treatment (`x`) on the outcome (`y`), in other words, the effect that passes through the two mediators `z1` and `z1`
+
+With two possible mediation paths, we need to sum the effects so:
+
+\[
+ACME = \beta_{xz_1} \times \beta_{z_1z_2} \times \beta_{z_2y} + \beta_{x_z2} \times \beta_{z_2y}
+\]
+
+Note that if there was a path `z1` &rarr; `y`, we would add the product of those coefficients to the model. Now let's identify which models have these coefficients
+
+- $\beta_{xz_1}$; `fit2a`: `r round(coef(fit2a)['x'], 2)`; Expected `r b_xz1`
+- $\beta_{z_1z_2}$; `fit2b`: `r round(coef(fit2b)['z1'], 2)`; Expected `r b_z1z2`
+- $\beta_{z_2y}$; `fit4`: `r round(coef(fit4)['z2'], 2)`; Expected `r b_z2y`
+- $\beta_{xz_2}$; `fit2b`: `r round(coef(fit2b)['x'], 2)`; Expected `r b_xz2`
+
+```{r}
+ACME = coef(fit2a)['x'] * coef(fit2b)['z1'] * coef(fit4)['z2'] +
+  coef(fit2b)['x'] * coef(fit4)['z2']
+ACME
+```
+
+##### ADE
+
+`ADE` stands for average direct effects. This is the direct effect of the treatment on the outcome, and is `x` coefficient from step 3
+
+```{r}
+ADE = coef(fit4)['x']
+ADE
+```
+
+##### Total effect
+
+`Total Effect` stands for the total effect (direct + indirect). This is the same  as the coefficient from model 1 (`r round(coef(fit1)['x'], 2)`). We can also get it by simply adding the ACME and the ADE
+
+```{r}
+ACME + ADE
+```
