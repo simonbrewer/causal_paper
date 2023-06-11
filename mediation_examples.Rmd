@@ -115,5 +115,40 @@ summary(semfit)
 `ACME` (average causal mediation effect). The indirect effect of the independent variable / treatment (`x`) on the outcome (`y`), in other words, the effect that passes through the mediator `z`. The value estimated here is `r round(semfit@Fit@est[7], 3)`. This is the effect of the treatment on the mediator (`r round(coef(fit2)['x'], 2)`) from step 2 times the mediator's effect on the outcome from step 3 (`r round(coef(fit3)['z'], 2)`)
 
 ```{r}
-coef(fit2)['x'] * coef(fit3)['z']
+ACME = coef(fit2)['x'] * coef(fit3)['z']
+ACME
 ```
+
+Expected value: `r b_xz * b_zy`
+
+##### ADE
+
+`ADE` stands for average direct effects. This is the direct effect of the treatment on the outcome, and is the same as the `x` coefficient from step 3
+
+```{r}
+ADE = coef(fit3)['x']
+ADE
+```
+
+Expected value: `r b_xy`
+
+##### Total Effect
+
+`Total Effect` stands for the total effect (direct + indirect). This is the same  as the coefficient from model 1 (`r round(coef(fit1)['x'], 2)`). 
+
+Note we can also get this as the sum of ACME and ADE
+
+```{r}
+TE = ACME + ADE
+TE
+```
+
+##### Proportion Mediated 
+
+`Prop. Mediated` describes the proportion of the effect of the IV on the DV that goes through the mediator. This is calculated by dividing the ACME by the total effect
+
+```{r}
+ACME / TE
+```
+
+
