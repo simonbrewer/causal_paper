@@ -370,6 +370,18 @@ The mediator (`z2` &rarr; `y`) is `r round(coef(fit4)['z2'], 2)`, which should b
 
 The direct effect in this model (`x` &rarr; `y`) is `r round(coef(fit4)['x'], 2)`. As this is significant, this is *partial mediation*.
 
+To prove that we can control for either variable, here's the same model with `z1` replacing `x`. 
+
+```{r}
+fit4a <- lm(y ~ x + z2, df)
+summary(fit4a)
+```
+
+```{r}
+coef(fit4)['z2']
+coef(fit4a)['z2']
+```
+
 #### Step 5: Estimate mediation effects
 
 ```{r}
@@ -383,8 +395,8 @@ summary(semfit)
 This (I think) is the product of the three individual mediator effects (`x` &rarr; `z1` &rarr; `z2` &rarr; `y`)
 
 \[
-  ACME = \beta_{xz_1} \times \beta_{z_1z_2} \times \beta_{z_2y}
-  \]
+ACME = \beta_{xz_1} \times \beta_{z_1z_2} \times \beta_{z_2y}
+\]
 
 ```{r}
 ACME = coef(fit2)['x'] * coef(fit3)['z1'] * coef(fit4)['z2']
@@ -503,7 +515,7 @@ The expected value for this is `r b_z1z2`, and we obtain a value of `r round(coe
 
 #### Step 4: Effect of mediator on DV
 
-To get the effect of  `z2` on `y` we need to account for `x` as it is a fork or common cause (not shown here). WE DROP Z1 THOUGH - WHY?
+To get the effect of  `z2` on `y` we need to account for `x` as it is a fork or common cause (not shown here). Note that unlike the previous example, we have to control at `x`. If we control at `z1`, this leaves an open backdoor through `z`. Controlling for `z1` and `x` will bias the the effect of `z2`
 
 ```{r}
 fit4 <- lm(y ~ x + z2, df)
