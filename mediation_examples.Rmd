@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-set.seed(123)
+set.seed(42)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -21,6 +21,9 @@ library(dagitty)
 library(ggdag)
 library(latex2exp)  # Easily convert LaTeX into arcane plotmath expressions
 library(ggtext)     # Use markdown in ggplot labels
+library(mediation)
+library(lavaan)
+library(lavaanPlot)
 
 # Create a cleaner serifed theme to use throughout
 theme_do_calc <- function() {
@@ -45,11 +48,11 @@ This represents an indirect path from intervention to outcome via a mediator (`x
 
 ```{r}
 med_dag <- dagify(z ~ x,
-                    y ~ x + z,
-                    coords = list(x = c(x = 1, y = 3, z = 2),
-                                  y = c(x = 1, y = 1, z = 2)),
-                    exposure = "x",
-                    outcome = "y")
+                  y ~ x + z,
+                  coords = list(x = c(x = 1, y = 3, z = 2),
+                                y = c(x = 1, y = 1, z = 2)),
+                  exposure = "x",
+                  outcome = "y")
 
 ggdag(med_dag) +
   theme_dag()
@@ -80,7 +83,7 @@ pairs(df)
 
 ### Mediation
 
-#### Step 1: total effect
+#### Step 1: Total effect
 
 ```{r}
 fit1 <- lm(y ~ x, df)
@@ -90,3 +93,338 @@ summary(fit1)
 The total effect is given by the product of the coefficients of the indirect path plus the coefficient of the direct path: $TE = \beta_{xz} \times \beta_{zy} + \beta_{xy}$
 
 The expected value for this is `r b_xz` times `r b_zy` plus `r b_xy` = `r b_xz * b_zy + b_xy`, and we obtain a value of `r round(coef(fit1)['x'], 2)`. 
+
+#### Step 2: Effect of IV on mediator
+
+```{r}
+fit2 <- lm(z ~ x, df)
+summary(fit2)
+```
+
+With no confounders, this is simply $IVE = \beta_{xz} \times x$.
+The expected value for this is `r b_xz`, and we obtain a value of `r round(coef(fit2)['x'], 2)`. 
+
+#### Step 3: Effect of mediator on DV
+
+To get the effect of `z` xon `y` we need to account for `x` as it is a fork or common cause
+
+```{r}
+ggdag_adjustment_set(med_dag, 
+                     exposure = 'z',
+                     outcome = 'y') + 
+  theme_dag()
+```
+
+```{r}
+fit3 <- lm(y ~ x + z, df)
+summary(fit3)
+```
+
+The mediator (`z` &rarr; `y`) is `r round(coef(fit3)['z'], 2)`, which should be close to the known effect of `r b_zy` (at least within CIs). As the direct effect in this model (`x` &rarr; `y`) is significant, this is *partial mediation*.
+
+#### Step 4: Estimate mediation effects
+
+```{r}
+res = mediation::mediate(model.m = fit2, 
+                         model.y = fit3, 
+                         treat = 'x',
+                         mediator = 'z',
+                         boot = TRUE)
+summary(res)
+```
+
+- `ACME` (average causal mediation effect). The indirect effect of the independent variable / treatment (`x`) on the outcome (`y`), in other words, the effect that passes through the mediator `z`. The value estimated here is `r round(res$d0, 3)`. This is the effect of the treatment on the mediator (`r round(coef(fit2)['x'], 2)`) from step 2 times the mediator's effect on the outcome from step 3 (`r round(coef(fit3)['z'], 2)`)
+- `ADE` stands for average direct effects. This is the direct effect of the treatment on the outcome, and is the same as the `x` coefficient from step 3
+- `Total Effect` stands for the total effect (direct + indirect). This is the same  as the coefficient from model 1 (`r round(coef(fit1)['x'], 2)`)
+- We can also get it by simply adding the ACME (`r round(res$d0, 3)`) and the ADE (`r round(res$z0, 3)`) to get the total effect of `r round(res$tau.coef, 3)` 
+- `Prop. Mediated` describes the proportion of the effect of the IV on the DV that goes through the mediator. This is calculated by dividing the ACME (`r round(res$d0, 3)`) by the total effect (`r round(res$tau.coef, 3)`) to get a value of `r round(res$n0, 3)`. 
+
+## Example 2: Two mediators
+
+This represents an indirect path from intervention to outcome via two independent mediators (`x` &rarr; `z1` &rarr; `y`) and (`x` &rarr; `z2` &rarr; `y`)
+
+```{r}
+med_dag <- dagify(z1 ~ x,
+                  z2 ~ x,
+                  y ~ x + z1 + z2,
+                  coords = list(x = c(x = 1, y = 3, z1 = 2, z2 = 2),
+                                y = c(x = 1, y = 1, z1 = 2, z2 = 0)),
+                  exposure = "x",
+                  outcome = "y")
+
+ggdag(med_dag) +
+  theme_dag()
+```
+
+### Simulated data
+
+- $x \sim N(5, 1)$
+- $z_1 = \beta_{xz_1} \times x + e$
+- $z_2 = \beta_{xz_2} \times x + e$
+- $y = \beta_{xy} \times x + \beta_{z_1y} \times z_1 + \beta_{z_2y} \times z_2 + e$
+
+```{r}
+n <- 10000
+
+b_xz1 = 4
+b_xz2 = -3
+b_xy = 2
+b_z1y = -1.5
+b_z2y = -0.5
+
+x <- rnorm(n, 5, 1)
+z1 <- x * b_xz1 + rnorm(n, 0, 2)
+z2 <- x * b_xz2 + rnorm(n, 0, 2)
+y <- x * b_xy + z1 * b_z1y + z2 * b_z2y + rnorm(n, 0, 2)
+df <- data.frame(x, y, z1, z2)
+```
+
+```{r}
+pairs(df)
+```
+
+### Mediation
+
+#### Step 1: Total effect
+
+```{r}
+fit1 <- lm(y ~ x, df)
+summary(fit1)
+```
+
+The total effect is given by the product of the coefficients of the indirect path plus the coefficient of the direct path: $TE = \beta_{xz_1} \times \beta_{z_1y} + \beta_{xz_2} \times \beta_{z_2y} + \beta_{xy}$
+
+The expected value for this is `r b_xz1` $\times$ `r b_z1y` $+$ `r b_xz2` $\times$ `r b_z2y` $+$ `r b_xy` = `r b_xz1 * b_z1y + b_xz2 * b_z2y + b_xy`, and we obtain a value of `r round(coef(fit1)['x'], 2)`. 
+
+#### Step 2: Effect of IV on mediator
+
+- `z1`
+
+```{r}
+fit2a <- lm(z1 ~ x, df)
+summary(fit2a)
+```
+
+The expected value for this is `r b_xz1`, and we obtain a value of `r round(coef(fit2a)['x'], 2)`. 
+
+- `z2`
+
+```{r}
+fit2b <- lm(z2 ~ x, df)
+summary(fit2b)
+```
+
+The expected value for this is `r b_xz2`, and we obtain a value of `r round(coef(fit2b)['x'], 2)`. 
+
+#### Step 3: Effect of mediators on DV
+
+To get the effect of `z1` and `z2` on `y` we need to account for `x` as it is a fork or common cause (not shown here)
+
+```{r}
+fit3 <- lm(y ~ x + z1 + z2, df)
+summary(fit3)
+```
+
+The mediator (`z1` &rarr; `y`) is `r round(coef(fit3)['z1'], 2)`, which should be close to the known effect of `r b_z1y` (at least within CIs). 
+
+The mediator (`z2` &rarr; `y`) is `r round(coef(fit3)['z2'], 2)`, which should be close to the known effect of `r b_z2y` (at least within CIs). 
+
+The direct effect in this model (`x` &rarr; `y`) is `r round(coef(fit3)['x'], 2)`. As this is significant, this is *partial mediation*.
+
+#### Step 4: Estimate mediation effects
+
+The **mediation** package won't work with two mediators (**psych** does, see below for code)
+
+
+##### ACME 
+
+`ACME` (average causal mediation effect). The indirect effect of the independent variable / treatment (`x`) on the outcome (`y`), in other words, the effect that passes through the two mediators `z1` and `z1`
+
+This is the sum of the two individual mediator effects:
+
+\[
+ACME = (\beta_{xz_1} \times \beta_{z_1y}) + (\beta_{xz_2} \times \beta_{z_2y})
+\]
+
+```{r}
+ACME = (coef(fit2a)['x'] * coef(fit3)['z1']) + (coef(fit2b)['x'] * coef(fit3)['z2'])
+ACME
+```
+
+Expected ACME is
+```{r}
+ACMEe = (b_xz1 * b_z1y) + (b_xz2 * b_z2y)
+ACMEe
+```
+
+##### ADE
+
+`ADE` stands for average direct effects. This is the direct effect of the treatment on the outcome, and is `x` coefficient from step 3
+
+```{r}
+ADE = coef(fit3)['x']
+ADE
+```
+
+##### Total effect
+
+`Total Effect` stands for the total effect (direct + indirect). This is the same  as the coefficient from model 1 (`r round(coef(fit1)['x'], 2)`). We can also get it by simply adding the ACME and the ADE
+
+```{r}
+ACME + ADE
+```
+
+
+```{r}
+load("example2.RData")
+psych::mediate.diagram(res)
+#psych::mediate(y ~ x + (z1) + (z2), data = df)
+```
+
+## Example 3: Two stage mediation
+
+This represents an indirect path from intervention to outcome via two dependent mediators (`x` &rarr; `z1` &rarr; `z2` &rarr; `y`)
+
+```{r}
+med_dag <- dagify(z1 ~ x,
+                  z2 ~ z1,
+                  y ~ x + z2,
+                  coords = list(x = c(x = 1, y = 4, z1 = 2, z2 = 3),
+                                y = c(x = 1, y = 1, z1 = 2, z2 = 2)),
+                  exposure = "x",
+                  outcome = "y")
+
+ggdag(med_dag) +
+  theme_dag()
+```
+
+### Simulated data
+
+- $x \sim N(5, 1)$
+- $z_1 = \beta_{xz_1} \times x + e$
+- $z_2 = \beta_{z_1z_2} \times z_1 + e$
+- $y = \beta_{xy} \times x + \beta_{z_2y} \times z_2 + e$
+
+```{r}
+n <- 1000
+
+b_xz1 = 10
+b_z1z2 = -5
+b_xy = 2.5
+b_z2y = -0.5
+
+x <- rnorm(n, 5, 1)
+z1 <- x * b_xz1 + rnorm(n, 0, 5)
+z2 <- z1 * b_z1z2 + rnorm(n, 0, 5)
+y <- x * b_xy + z2 * b_z2y + rnorm(n, 0, 5)
+df <- data.frame(x, y, z1, z2)
+```
+
+```{r}
+pairs(df)
+```
+
+### Mediation
+
+#### Step 1: Total effect
+
+```{r}
+fit1 <- lm(y ~ x, df)
+summary(fit1)
+```
+
+#### Step 2: Effect of IV on mediator (`z1`)
+
+- `z1`
+
+```{r}
+fit2 <- lm(z1 ~ x, df)
+summary(fit2)
+```
+
+The expected value for this is `r b_xz1`, and we obtain a value of `r round(coef(fit2)['x'], 2)`. 
+
+#### Step 3: Effect of mediator (`z1`) on mediator (`z2`)
+
+```{r}
+fit3 <- lm(z2 ~ z1, df)
+summary(fit3)
+```
+
+The expected value for this is `r b_z1z2`, and we obtain a value of `r round(coef(fit3)['z1'], 2)`. 
+
+#### Step 4: Effect of mediator on DV
+
+To get the effect of  `z2` on `y` we need to account for `x` as it is a fork or common cause (not shown here)
+
+```{r}
+fit4 <- lm(y ~ x + z2, df)
+summary(fit4)
+```
+
+The mediator (`z2` &rarr; `y`) is `r round(coef(fit4)['z2'], 2)`, which should be close to the known effect of `r b_z2y` (at least within CIs). 
+
+The direct effect in this model (`x` &rarr; `y`) is `r round(coef(fit4)['x'], 2)`. As this is significant, this is *partial mediation*.
+
+#### Step 5: Estimate mediation effects
+
+
+##### ACME 
+
+`ACME` (average causal mediation effect). The indirect effect of the independent variable / treatment (`x`) on the outcome (`y`), in other words, the effect that passes through the two mediators `z1` and `z1`
+
+This (I think) is the product of the three individual mediator effects (`x` &rarr; `z1` &rarr; `z2` &rarr; `y`)
+
+\[
+ACME = \beta_{xz_1} \times \beta_{z_1z_2} \times \beta_{z_2y}
+\]
+
+```{r}
+ACME = coef(fit2)['x'] * coef(fit3)['z1'] * coef(fit4)['z2']
+ACME
+```
+
+Expected ACME is
+```{r}
+ACMEe = b_xz1 * b_z1z2 * b_z2y
+ACMEe
+```
+
+##### ADE
+
+`ADE` stands for average direct effects. This is the direct effect of the treatment on the outcome, and is `x` coefficient from step 3
+
+```{r}
+ADE = coef(fit4)['x']
+ADE
+```
+
+##### Total effect
+
+`Total Effect` stands for the total effect (direct + indirect). This is the same  as the coefficient from model 1 (`r round(coef(fit1)['x'], 2)`). We can also get it by simply adding the ACME and the ADE
+
+```{r}
+ACME + ADE
+```
+
+#### **lavaan**
+
+```{r}
+model <- "
+  z1 ~ b_xz1 * x
+  z2 ~ b_z1z2 * z1
+  y ~  b_xy * x + b_z2y * z2
+  ind_eff := b_xz1 * b_z1z2 * b_z2y
+  total := b_xy + (b_xz1 * b_z1z2 * b_z2y)
+"
+```
+
+```{r}
+# fit <- lavaan::sem(model = model, data = df, se = "boot", bootstrap = 5000)
+fit <- lavaan::sem(model = model, data = df)
+lavaanPlot(model = fit)
+```
+
+```{r}
+summary(fit)
+```
