@@ -13,15 +13,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Libraries and whatnot
 
 ```{r warning=FALSE, message=FALSE}
-library(tidyverse)
-# library(broom)
-library(patchwork)
-library(scales)
-library(dagitty)
-library(ggdag)
-library(latex2exp)  # Easily convert LaTeX into arcane plotmath expressions
-library(ggtext)     # Use markdown in ggplot labels
-library(mediation)
 library(lavaan)
 library(lavaanPlot)
 ```
@@ -151,4 +142,141 @@ TE
 ACME / TE
 ```
 
+## Example 2: Two mediators
 
+This represents an indirect path from intervention to outcome via two independent mediators (`x` &rarr; `z1` &rarr; `y`) and (`x` &rarr; `z2` &rarr; `y`)
+
+### Simulated data
+
+- $x \sim N(5, 1)$
+- $z_1 = \beta_{xz_1} \times x + e$
+- $z_2 = \beta_{xz_2} \times x + e$
+- $y = \beta_{xy} \times x + \beta_{z_1y} \times z_1 + \beta_{z_2y} \times z_2 + e$
+
+```{r}
+n <- 10000
+
+b_xz1 = 4
+b_xz2 = -3
+b_xy = 2
+b_z1y = -1.5
+b_z2y = -0.5
+
+x <- rnorm(n, 5, 1)
+z1 <- x * b_xz1 + rnorm(n, 0, 2)
+z2 <- x * b_xz2 + rnorm(n, 0, 2)
+y <- x * b_xy + z1 * b_z1y + z2 * b_z2y + rnorm(n, 0, 2)
+df <- data.frame(x, y, z1, z2)
+```
+
+```{r}
+pairs(df)
+```
+
+### DAG
+
+```{r}
+model <- "
+  z1 ~ b_xz1 * x
+  z2 ~ b_xz2 * x
+  y ~ b_xy * x + b_z1y * z1 + b_z2y * z2
+  ind_eff := b_xz1 * b_z1y + b_xz2 * b_z2y
+  total := b_xy + (b_xz1 * b_z1y + b_xz2 * b_z2y)
+"
+semfit <- lavaan::sem(model = model, data = df)
+lavaanPlot(model = semfit)
+```
+
+### Mediation
+
+#### Step 1: Total effect
+
+```{r}
+fit1 <- lm(y ~ x, df)
+summary(fit1)
+```
+
+The total effect is given by the product of the coefficients of the indirect path plus the coefficient of the direct path: $TE = \beta_{xz_1} \times \beta_{z_1y} + \beta_{xz_2} \times \beta_{z_2y} + \beta_{xy}$
+
+The expected value for this is `r b_xz1` $\times$ `r b_z1y` $+$ `r b_xz2` $\times$ `r b_z2y` $+$ `r b_xy` = `r b_xz1 * b_z1y + b_xz2 * b_z2y + b_xy`, and we obtain a value of `r round(coef(fit1)['x'], 2)`. 
+
+#### Step 2: Effect of IV on mediator
+
+- `z1`
+
+```{r}
+fit2a <- lm(z1 ~ x, df)
+summary(fit2a)
+```
+
+The expected value for this is `r b_xz1`, and we obtain a value of `r round(coef(fit2a)['x'], 2)`. 
+
+- `z2`
+
+```{r}
+fit2b <- lm(z2 ~ x, df)
+summary(fit2b)
+```
+
+The expected value for this is `r b_xz2`, and we obtain a value of `r round(coef(fit2b)['x'], 2)`. 
+
+#### Step 3: Effect of mediators on DV
+
+To get the effect of `z1` and `z2` on `y` we need to account for `x` as it is a fork or common cause (not shown here)
+
+```{r}
+fit3 <- lm(y ~ x + z1 + z2, df)
+summary(fit3)
+```
+
+The mediator (`z1` &rarr; `y`) is `r round(coef(fit3)['z1'], 2)`, which should be close to the known effect of `r b_z1y` (at least within CIs). 
+
+The mediator (`z2` &rarr; `y`) is `r round(coef(fit3)['z2'], 2)`, which should be close to the known effect of `r b_z2y` (at least within CIs). 
+
+The direct effect in this model (`x` &rarr; `y`) is `r round(coef(fit3)['x'], 2)`. The expected value is `r b_xy`. As this is significant, this is *partial mediation*.
+
+#### Step 4: Estimate mediation effects
+
+```{r}
+summary(semfit)
+```
+
+##### ACME 
+
+`ACME` (average causal mediation effect). The indirect effect of the independent variable / treatment (`x`) on the outcome (`y`), in other words, the effect that passes through the two mediators `z1` and `z1`
+
+This is the sum of the two individual mediator effects:
+
+\[
+ACME = (\beta_{xz_1} \times \beta_{z_1y}) + (\beta_{xz_2} \times \beta_{z_2y})
+\]
+
+```{r}
+ACME = (coef(fit2a)['x'] * coef(fit3)['z1']) + (coef(fit2b)['x'] * coef(fit3)['z2'])
+ACME
+```
+
+Expected ACME is
+```{r}
+ACMEe = (b_xz1 * b_z1y) + (b_xz2 * b_z2y)
+ACMEe
+```
+
+##### ADE
+
+`ADE` stands for average direct effects. This is the direct effect of the treatment on the outcome, and is `x` coefficient from step 3
+
+```{r}
+ADE = coef(fit3)['x']
+ADE
+```
+
+Expected ADE is `r b_xy`
+
+##### Total effect
+
+`Total Effect` stands for the total effect (direct + indirect). This is the same  as the coefficient from model 1 (`r round(coef(fit1)['x'], 2)`). We can also get it by simply adding the ACME and the ADE
+
+```{r}
+ACME + ADE
+```
