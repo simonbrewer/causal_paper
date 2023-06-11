@@ -414,3 +414,48 @@ ADE
 ACME + ADE
 ```
 
+## Example 4: WNAI framework
+
+This represents an indirect path from intervention to outcome via two dependent mediators (`x` &rarr; `z1` &rarr; `z2` &rarr; `y`), and a second mediation path (`x` &rarr; `z2` &rarr; `y`)
+
+### Simulated data
+
+- $x \sim N(5, 1)$
+- $z_1 = \beta_{xz_1} \times x + e$
+- $z_2 = \beta_{xz_2} \times x + \beta_{z_1z_2} z_1 + e$
+- $y = \beta_{xy} \times x + \beta_{z_2y} \times z_2 + e$
+
+```{r}
+n <- 1000
+
+b_xz1 = 10
+b_xz2 = -3.5
+b_z1z2 = -5
+b_xy = 2.5
+b_z2y = -0.5
+
+x <- rnorm(n, 5, 1)
+z1 <- x * b_xz1 + rnorm(n, 0, 5)
+z2 <- x * b_xz2 + z1 * b_z1z2 + rnorm(n, 0, 5)
+y <- x * b_xy + z2 * b_z2y + rnorm(n, 0, 5)
+df <- data.frame(x, y, z1, z2)
+```
+
+```{r}
+pairs(df)
+```
+
+### DAG
+
+```{r}
+model <- "
+  z1 ~ b_xz1 * x
+  z2 ~ b_xz2 * x + b_z1z2 * z1
+  y ~ b_xy * x + b_z2y * z2
+  ind_eff := b_xz1 * b_z1z2 * b_z2y
+  total := b_xy + (b_xz1 * b_z1z2 * b_z2y)
+"
+semfit <- lavaan::sem(model = model, data = df)
+lavaanPlot(model = semfit)
+```
+
