@@ -2,7 +2,10 @@
 title: "WNAI model"
 author: "Simon Brewer"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
-output: html_document
+output:
+  html_document:
+    toc: true
+    toc_float: true
 ---
 
 ```{r setup, include=FALSE}
@@ -24,16 +27,16 @@ library(ggdag)
 ```{r}
 wnai_dag <- dagify(density ~ temp + precip,
                    agri  ~ density + temp + precip,
-                    plant ~ temp + precip + density + agri,
-                    animal ~ temp + precip + density + plant,
-                    coords = list(x = c(temp = 1, precip = 1, 
-                                        density = 2, plant = 2.5,
-                                        agri = 3,
-                                        animal = 4),
-                                  y = c(temp = 2, precip = 3, 
-                                        density = 1, plant = 4,
-                                        agri = 1,
-                                        animal = 2.5)))
+                   plant ~ temp + precip + density + agri,
+                   animal ~ temp + precip + density + plant,
+                   coords = list(x = c(temp = 1, precip = 1, 
+                                       density = 2, plant = 2.5,
+                                       agri = 3,
+                                       animal = 4),
+                                 y = c(temp = 2, precip = 3, 
+                                       density = 1, plant = 4,
+                                       agri = 1,
+                                       animal = 2.5)))
 
 ggdag(wnai_dag) +
   theme_dag()
@@ -47,12 +50,12 @@ dat <- read.csv("~/Dropbox/DB Docs/codding/causal_paper/data/WNAI-DPLACE_Causal_
 
 ```{r}
 df <- data.frame(precip = dat$MonthlyMeanPrecip,
-                   temp = dat$AnnualMeanTemperature,
-                   density = dat$WNAI288_PopDensityAve,
-                   agri = dat$WNAI189_Ag01,
-                   animal = dat$LandMammal_Richness,
-                   plant = dat$Plant_Richness
-                   )
+                 temp = dat$AnnualMeanTemperature,
+                 density = dat$WNAI288_PopDensityAve,
+                 agri = dat$WNAI189_Ag01,
+                 animal = dat$LandMammal_Richness,
+                 plant = dat$Plant_Richness
+)
 ```
 
 ```{r}
@@ -78,6 +81,103 @@ ggdag_adjustment_set(wnai_dag,
   theme_dag()
 ```
 
+### DAG
+
+model <- "
+  z ~ b_xz * x
+  y ~ b_xy * x + b_zy * z
+  ind_eff := b_xz * b_zy
+  total := b_xy + (b_xz * b_zy)
+"
+
+```{r}
+df2 <- as.data.frame(scale(df))
+model <- "
+  density ~ b_td * temp + b_pd * precip
+  agri ~ b_tag * temp + b_pag * precip + b_dag * density
+  plant ~ b_tpl * temp + b_ppl * precip + b_dpl * density + b_agpl * agri
+  ind_eff := b_dag * b_agpl
+  total := b_dpl + ind_eff
+"
+semfit <- lavaan::sem(model = model, data = df2)
+lavaanPlot(model = semfit)
+```
+### Mediation
+
+#### Step 1: Total effect
+
+```{r}
+fit1 <- lm(plant ~ temp + precip + density, df2)
+summary(fit1)
+```
+
+The total effect is given by the product of the coefficients of the indirect path plus the coefficient of the direct path: $TE = \beta_{xz} \times \beta_{zy} + \beta_{xy}$. From this model we get a value of `r round(coef(fit1)['density'], 2)`. 
+
+#### Step 2: Effect of IV on mediator
+
+Again, we need to control for the backdoor paths through `temp` and `precip`
+
+```{r}
+fit2 <- lm(agri ~ temp + precip + density, df2)
+summary(fit2)
+```
+
+We obtain a value of `r round(coef(fit2)['density'], 2)`. 
+
+#### Step 3: Effect of mediator on DV
+
+To get the effect of `agri` on `plant` we need to account for `density` as it is a fork or common cause, as well as the usual backdoor paths
+
+```{r}
+fit3 <- lm(plant ~ temp + precip + density + agri, df2)
+summary(fit3)
+```
+
+The mediator (`z` &rarr; `y`) is `r round(coef(fit3)['agri'], 2)`.
+
+#### Step 4: Estimate mediation effects
+
+```{r}
+summary(semfit)
+```
+
+##### ACME
+
+`ACME` (average causal mediation effect). This is the effect of the treatment on the mediator (`r round(coef(fit2)['density'], 2)`) from step 2 times the mediator's effect on the outcome from step 3 (`r round(coef(fit3)['agri'], 2)`)
+
+```{r}
+ACME = coef(fit2)['density'] * coef(fit3)['agri']
+ACME
+```
+
+##### ADE
+
+`ADE` stands for average direct effects. This is the direct effect of the treatment on the outcome, and is the same as the `density` coefficient from step 3
+
+```{r}
+ADE = coef(fit3)['density']
+ADE
+```
+
+##### Total Effect
+
+`Total Effect` stands for the total effect (direct + indirect). This is the same  as the `density` coefficient from model 1 (`r round(coef(fit1)['density'], 2)`). 
+
+Note we can also get this as the sum of ACME and ADE
+
+```{r}
+TE = abs(ACME) + abs(ADE)
+TE
+```
+
+##### Proportion Mediated 
+
+`Prop. Mediated` describes the proportion of the effect of the IV on the DV that goes through the mediator. This is calculated by dividing the ACME by the total effect
+
+```{r}
+abs(ACME) / TE
+```
+
 ## Model 2: Animals
 
 Causal link to be tested: `animal ~ density`. 
@@ -95,7 +195,7 @@ ggdag_adjustment_set(wnai_dag,
 ### DAG
 
 ```{r}
-df2 <- scale(df)
+df2 <- as.data.frame(scale(df))
 model <- "
   density ~ b_td * temp + b_pd * precip
   agri ~ b_tag * temp + b_pag * precip + b_dag * density
@@ -103,6 +203,7 @@ model <- "
   animal ~ b_tan * temp + b_pan * precip + b_dan * density + b_plan * plant
   ind_eff1 := (b_dag * b_agpl * b_plan)
   ind_eff2 := (b_dpl * b_plan)
+  ind_eff := ind_eff1 + ind_eff2
   total := b_dan + ind_eff1 + ind_eff2
 "
 semfit <- lavaan::sem(model = model, data = df2)
@@ -112,3 +213,122 @@ lavaanPlot(model = semfit)
 ```{r}
 summary(semfit)
 ```
+
+### Mediation
+
+**FOR NOW - RUN THIS USING THE SCALED DATA**
+
+#### Step 1: Total effect
+
+Need to adjust for backdoor paths
+
+```{r}
+fit1 <- lm(animal ~ density + temp + precip, df2)
+summary(fit1)
+```
+
+Total effect is `r round(coef(fit1)['density'], 2)`
+
+#### Step 2: Effect of IV on mediators
+
+- `agri`
+
+```{r}
+fit2a <- lm(agri ~ density + temp + precip, df2)
+summary(fit2a)
+```
+
+We obtain a value of `r round(coef(fit2a)['density'], 2)`. 
+
+- `plant`
+
+```{r}
+fit2b <- lm(plant ~ density + temp + precip + agri, df2)
+summary(fit2b)
+```
+
+For `density` we obtain a value of `r round(coef(fit2b)['density'], 2)`. 
+
+For `agri` we obtain a value of `r round(coef(fit2b)['agri'], 2)`. 
+
+#### Step 3: Effect of mediator (`agri`) on mediator (`plant`)
+
+Not sure if we need this, but let's grab it anyway. Might need a control for `x`, which makes it the same as 2b
+
+```{r}
+fit3 <- lm(plant ~ density + temp + precip + agri, df2)
+summary(fit3)
+```
+
+We obtain a value of `r round(coef(fit3)['agri'], 2)`. 
+
+#### Step 4: Effect of mediator on DV
+
+To get the effect of  `plant` on `animal` we need to account for `density` as it is a fork or common cause (not shown here). Note that unlike the previous example, we have to control at `density`. If we control at `agri`, this leaves an open backdoor through `density`. Controlling for `agri` and `density` will bias the the effect of `plant`
+
+```{r}
+fit4 <- lm(animal ~ density + temp + precip + plant, df2)
+summary(fit4)
+```
+
+The mediator (`plant` &rarr; `animal`) is `r round(coef(fit4)['plant'], 2)`. 
+
+The direct effect in this model (`density` &rarr; `animal`) is `r round(coef(fit4)['density'], 2)`. As this is significant, this is *partial mediation*.
+
+#### Step 5: Estimate mediation effects
+
+```{r}
+summary(semfit)
+```
+
+##### ACME 
+
+`ACME` (average causal mediation effect). The indirect effect of the independent variable / treatment (`density`) on the outcome (`animal`), in other words, the effect that passes through the two mediators `agri` and `plant`
+
+With two possible mediation paths, we need to sum the effects so:
+
+\[
+ACME = \beta_{d,ag} \times \beta_{ag,pl} \times \beta_{pl,an} + \beta_{d,pl} \times \beta_{pl,an}
+\]
+
+Note that if there was a path `agri` &rarr; `animal`, we would add the product of those coefficients to the model. Now let's identify which models have these coefficients
+
+- $\beta_{d,ag}$; `fit2a`: `r round(coef(fit2a)['density'], 2)`
+- $\beta_{ag,pl}$; `fit2b`: `r round(coef(fit2b)['agri'], 2)`
+- $\beta_{pl,an}$; `fit4`: `r round(coef(fit4)['plant'], 2)`
+- $\beta_{d,pl}$; `fit2b`: `r round(coef(fit2b)['density'], 2)`
+
+```{r}
+ACME = as.numeric(
+  coef(fit2a)['density'] * coef(fit2b)['agri'] * coef(fit4)['plant'] +
+    coef(fit2b)['density'] * coef(fit4)['plant']
+)
+ACME
+```
+
+##### ADE
+
+`ADE` stands for average direct effects. This is the direct effect of the treatment on the outcome, and is the `density` coefficient from step 3
+
+```{r}
+ADE = as.numeric(coef(fit4)['density'])
+ADE
+```
+
+##### Total effect
+
+`Total Effect` stands for the total effect (direct + indirect). This is the same  as the coefficient from model 1 (`r round(coef(fit1)['density'], 2)`). We can also get it by simply adding the ACME and the ADE
+
+```{r}
+TE = abs(ACME) + abs(ADE)
+TE
+```
+
+##### Proportion Mediated 
+
+`Prop. Mediated` describes the proportion of the effect of the IV on the DV that goes through the mediator. This is calculated by dividing the ACME by the total effect
+
+```{r}
+abs(ACME) / TE
+```
+
