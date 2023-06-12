@@ -141,6 +141,10 @@ The mediator (`z` &rarr; `y`) is `r round(coef(fit3)['agri'], 2)`.
 summary(semfit)
 ```
 
+```{r}
+lavaanPlot(model = semfit, coefs = TRUE, stars = "regress")
+```
+
 ##### ACME
 
 `ACME` (average causal mediation effect). This is the effect of the treatment on the mediator (`r round(coef(fit2)['density'], 2)`) from step 2 times the mediator's effect on the outcome from step 3 (`r round(coef(fit3)['agri'], 2)`)
@@ -279,6 +283,10 @@ The direct effect in this model (`density` &rarr; `animal`) is `r round(coef(fit
 
 ```{r}
 summary(semfit)
+```
+
+```{r}
+lavaanPlot(model = semfit, coefs = TRUE, stars = "regress")
 ```
 
 ##### ACME 
