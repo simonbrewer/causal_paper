@@ -170,7 +170,7 @@ ADE
 Note we can also get this as the sum of ACME and ADE
 
 ```{r}
-TE = abs(ACME) + abs(ADE)
+TE = ACME + ADE
 TE
 ```
 
@@ -179,7 +179,7 @@ TE
 `Prop. Mediated` describes the proportion of the effect of the IV on the DV that goes through the mediator. This is calculated by dividing the ACME by the total effect
 
 ```{r}
-abs(ACME) / TE
+ACME / TE
 ```
 
 ## Model 2: Animals
@@ -328,7 +328,7 @@ ADE
 `Total Effect` stands for the total effect (direct + indirect). This is the same  as the coefficient from model 1 (`r round(coef(fit1)['density'], 2)`). We can also get it by simply adding the ACME and the ADE
 
 ```{r}
-TE = abs(ACME) + abs(ADE)
+TE = ACME + ADE
 TE
 ```
 
@@ -337,6 +337,6 @@ TE
 `Prop. Mediated` describes the proportion of the effect of the IV on the DV that goes through the mediator. This is calculated by dividing the ACME by the total effect
 
 ```{r}
-abs(ACME) / TE
+ACME / TE
 ```
 
