@@ -154,7 +154,11 @@ ggdag_paths(wnai_dag, from = 'density', to = 'plant',
 
 #### Step 1c-1: Total effect
 
-This is the equivalent to the total causal effect. As this is a chain (`density` &rarr; `agri` &rarr; `plant`), we do *not* need to control for the mediator. We need to keep the controls for the backdoor paths through `temp` and `precip`
+This is the equivalent to the total causal effect. As this is a chain (`density` &rarr; `agri` &rarr; `plant`), we do *not* need to control for the mediator. We need to keep the controls for the backdoor paths through `temp` and `precip`. Ignoring the backdoor controls this is:
+
+\[
+\mbox{plant} \sim \beta_{te} \times \mbox{density} 
+\]
 
 ```{r}
 fit1 = lm(plant ~ density + temp + precip, df)
@@ -167,10 +171,14 @@ The total effect is `r round(coef(fit1)['density'], 2)`.
 
 Next we need to quantify the effect of the independent variable (`density`) on the mediator (`agri`). Again, we need to control for the backdoor paths through `precip` and `temp`
 
+\[
+\mbox{agri} \sim \beta_{te} \times \mbox{density} 
+\]
+
 ```{r}
 ggdag_adjustment_set(wnai_dag, 
-                     exposure = 'agri', 
-                     outcome = 'plant') +
+                     exposure = 'density', 
+                     outcome = 'agri') +
   theme_dag()
 ```
 
@@ -278,5 +286,41 @@ summary(fit1)
 ```
 
 The total effect is `r round(coef(fit1)['density'], 2)`. 
+
+#### Step 2c-2: The effect of the IV on the mediator
+
+Next we need to quantify the effect of the independent variable (`density`) on the two mediators. Again, we need to control for any backdoor paths.
+
+- Agriculture
+
+```{r}
+ggdag_adjustment_set(wnai_dag, 
+                     exposure = 'density', 
+                     outcome = 'agri') +
+  theme_dag()
+```
+
+```{r}
+fit2a = lm(agri ~ density + temp + precip, df)
+summary(fit2a)
+```
+
+And we get a result of `r round(coef(fit2a)['density'],2)`.
+
+- Plant
+
+```{r}
+ggdag_adjustment_set(wnai_dag, 
+                     exposure = 'density', 
+                     outcome = 'plant') +
+  theme_dag()
+```
+
+```{r}
+fit2b = lm(plant ~ density + temp + precip, df)
+summary(fit2b)
+```
+
+And we get a result of `r round(coef(fit2b)['density'],2)`.
 
 
