@@ -19,6 +19,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(dagitty)
 library(ggdag)
 library(lme4)
+library(stargazer)
 ```
 
 ## Full DAG
@@ -110,6 +111,25 @@ summary(fit1)
 
 Total effect is `r round(fixef(fit1)['agri'], 2)`
 
+```{r results = 'asis'}
+stargazer(fit1, type = 'html')
+```
+
+#### Naive model for comparison
+
+This is asking the question - what would happen if we ignore the confounders
+
+```{r}
+fit0 <- lmer(plant ~ agri + (1 | lang), 
+             data = df)
+summary(fit0)
+```
+
+Total effect is `r round(fixef(fit0)['agri'], 2)`
+
+```{r results = 'asis'}
+stargazer(fit0, type = 'html')
+```
 
 ## Model 2: Animals
 
@@ -156,6 +176,9 @@ summary(fit1)
 ```
 
 The total effect is given by the product of the coefficients of the indirect path plus the coefficient of the direct path: $TE = \beta_{xz} \times \beta_{zy} + \beta_{xy}$. From this model we get a value of `r round(fixef(fit1)['agri'], 2)`. 
+```{r results = 'asis'}
+stargazer(fit1, type = 'html')
+```
 
 #### Step 2: Effect of IV on mediator
 
@@ -178,6 +201,10 @@ summary(fit2)
 
 We obtain a value of `r round(fixef(fit2)['agri'], 2)`. 
 
+```{r results = 'asis'}
+stargazer(fit2, type = 'html')
+```
+
 #### Step 3: Effect of mediator on DV
 
 To get the effect of `plant` on `animal` we need to account for `agri` as it is a fork or common cause, as well as the usual backdoor paths
@@ -198,6 +225,10 @@ summary(fit3)
 ```
 
 The mediator (`z` &rarr; `y`) is `r round(fixef(fit3)['plant'], 2)`.
+
+```{r results = 'asis'}
+stargazer(fit3, type = 'html')
+```
 
 #### Step 4: Estimate mediation effects
 
